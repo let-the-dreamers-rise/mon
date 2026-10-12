@@ -10,9 +10,9 @@ pragma solidity ^0.8.24;
 ///         2 blocks, so kills, fuses and escapes are all proven against recorded samples.
 contract Hollow {
     // ---------------------------------------------------------------- map
-    uint256 public constant GRID = 32; // cells per side
-    uint256 public constant CELL_CM = 250; // cell size in centimetres
-    uint256 public constant WORLD_CM = GRID * CELL_CM; // 8000cm = 80m
+    uint256 public constant GRID = 64; // cells per side
+    uint256 public constant CELL_CM = 300; // cell size in centimetres
+    uint256 public constant WORLD_CM = GRID * CELL_CM; // 19200cm = 192m: the town of Halden
 
     // ---------------------------------------------------------------- timing (in blocks, ~0.3s each)
     uint256 public constant SAMPLE_BLOCKS = 2; // one position sample per body every 2 blocks
@@ -23,7 +23,7 @@ contract Hollow {
     uint256 public constant FIRST_SHIFT_MIN = 120;
     uint256 public constant SHIFT_MIN = 100; // shifts every 30s..75s
     uint256 public constant SHIFT_RANGE = 150;
-    uint256 public constant NIGHT_BLOCKS = 1600; // a night lasts at most ~8 minutes
+    uint256 public constant NIGHT_BLOCKS = 2400; // a night lasts at most ~12 minutes
     uint256 public constant LOBBY_BLOCKS = 600;
 
     // ---------------------------------------------------------------- distances (cm)
@@ -32,16 +32,32 @@ contract Hollow {
     uint256 public constant OBJECTIVE_RADIUS_CM = 160;
     uint256 public constant SPAWN_RADIUS_CM = 200;
 
+    // ---------------------------------------------------------------- watchers
+    uint256 public constant TORMENT_FEE = 0.01 ether; // in MON
+    uint256 public constant FORCE_SHIFT_MULTIPLIER = 5;
+    uint256 public constant FORCE_SHIFT_COOLDOWN = 200;
+    uint256 public constant FORCE_SHIFT_DELAY = 10;
+    uint8 public constant TORMENT_LIGHTS_OUT = 1;
+    uint8 public constant TORMENT_WHISPER = 2;
+    uint8 public constant TORMENT_SCREAM = 3;
+    uint8 public constant TORMENT_FORCE_SHIFT = 4;
+
+    // ---------------------------------------------------------------- shops & items
+    uint256 public constant SHOP_RADIUS_CM = 250;
+    uint256 public constant MAX_ITEM_STACK = 9;
+    uint8 public constant ITEM_COUNT = 6;
+    // 0 battery, 1 flare, 2 music box (24/7 mart) · 3 pills, 4 adrenaline (pharmacy) · 5 polaroid (photo)
+
     uint256 public constant MAX_SOULS = 8;
     /// @dev how far back a proof may look for the last recorded sample of an idle body
     uint256 public constant MAX_SCAN = 256;
 
     // ---------------------------------------------------------------- immutable map data
-    /// @dev bit (cy*GRID + cx) set => solid cell. 1024 bits over 4 words.
-    uint256[4] public walls;
+    /// @dev bit (cy*GRID + cx) set => solid cell. 4096 bits over 16 words.
+    uint256[16] public walls;
     /// @dev 8 spawn points, 32 bits each: x(16) | y(16) << 16
     uint256 public spawns;
-    /// @dev fuse0, fuse1, fuse2, exit — 32 bits each, same packing as spawns
+    /// @dev fuse0, fuse1, fuse2, exit, shop0 (24/7 mart), shop1 (pharmacy), shop2 (photo) — 32 bits each
     uint256 public objectives;
 
     // ---------------------------------------------------------------- state
@@ -60,6 +76,8 @@ contract Hollow {
         uint64 endBlock; // set when the last living soul is turned or escapes
         // slot 2
         uint32 epoch;
+        uint8 escapedCount;
+        uint64 lastForcedShift;
     }
 
     struct Soul {
@@ -87,6 +105,11 @@ contract Hollow {
     /// @dev night => (body << 32 | slotIndex) => 8 packed samples
     mapping(uint256 => mapping(uint256 => uint256)) public samples;
     mapping(address => bytes16) public names;
+    /// @dev watcher fees collected per night, split between the souls that escape
+    mapping(uint256 => uint256) public pot;
+    mapping(uint256 => mapping(uint256 => bool)) public potClaimed;
+    /// @dev night => body => item counts (16 bits per item). Pockets belong to bodies, not souls.
+    mapping(uint256 => mapping(uint256 => uint256)) public pockets;
 
     // ---------------------------------------------------------------- events
     event NightCreated(uint256 indexed night, address indexed host, uint64 lobbyEnd);
@@ -98,6 +121,11 @@ contract Hollow {
     event ExitOpened(uint256 indexed night, uint64 atBlock);
     event Escaped(uint256 indexed night, uint8 soul, uint8 body, uint64 atBlock);
     event Voice(uint256 indexed night, uint8 body, uint8 voice, uint32 sampleIndex);
+    event Torment(uint256 indexed night, address indexed watcher, uint8 kind, uint8 body, uint64 atBlock, uint256 paid);
+    event PotClaimed(uint256 indexed night, uint8 soul, uint256 amount);
+    event PotRolledOver(uint256 indexed fromNight, uint256 indexed toNight, uint256 amount);
+    event Bought(uint256 indexed night, uint8 body, uint8 soul, uint8 item, uint256 paid);
+    event Used(uint256 indexed night, uint8 body, uint8 soul, uint8 item, uint32 pos, uint64 atBlock);
 
     error NotInLobby();
     error NightFull();
@@ -109,8 +137,14 @@ contract Hollow {
     error BadSamples();
     error TooLate();
     error InvalidProof();
+    error FeeTooLow();
+    error Cooldown();
+    error NothingToClaim();
+    error NotAtShop();
+    error PocketsFull();
+    error NoItem();
 
-    constructor(uint256[4] memory walls_, uint256 spawns_, uint256 objectives_) {
+    constructor(uint256[16] memory walls_, uint256 spawns_, uint256 objectives_) {
         walls = walls_;
         spawns = spawns_;
         objectives = objectives_;
@@ -335,9 +369,123 @@ contract Hollow {
         soul.escapedRel = rel;
         b.goneRel = rel;
         n.goneMask |= uint8(1 << body);
+        n.escapedCount += 1;
         n.living -= 1;
         if (n.living == 0) n.endBlock = uint64(block.number);
         emit Escaped(id, s, body, uint64(blk));
+    }
+
+    // ================================================================ shops
+
+    function itemPrice(uint8 item) public pure returns (uint256) {
+        if (item == 0) return 0.004 ether; // battery
+        if (item == 1) return 0.008 ether; // flare
+        if (item == 2) return 0.006 ether; // music box
+        if (item == 3) return 0.004 ether; // pills
+        if (item == 4) return 0.01 ether; // adrenaline
+        if (item == 5) return 0.02 ether; // polaroid
+        revert NoItem();
+    }
+
+    function itemShop(uint8 item) public pure returns (uint256) {
+        return item <= 2 ? 0 : item <= 4 ? 1 : 2;
+    }
+
+    /// @notice Buy an item into the pockets of the body you wear. Your recorded position at sample
+    ///         `index` must be at the counter of the shop that sells it. The price goes to the pot.
+    function buy(uint256 id, uint32 epoch, uint8 body, uint32 index, uint8 item) external payable {
+        Night storage n = nights[id];
+        _sync(id, n);
+        if (_isOver(n)) revert NightOver();
+        if (msg.value < itemPrice(item)) revert FeeTooLow();
+        _checkSample(id, n, epoch, index);
+        uint256 s = soulIndexPlus1[id][msg.sender];
+        if (s == 0) revert NotASoul();
+        s -= 1;
+        if ((epochs[id][epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
+        uint256 counter = (objectives >> (32 * (4 + itemShop(item)))) & 0xFFFFFFFF;
+        if (_dist2(_sampleAt(id, n, body, index), counter) > SHOP_RADIUS_CM * SHOP_RADIUS_CM) revert NotAtShop();
+        uint256 p = pockets[id][body];
+        uint256 count = (p >> (16 * item)) & 0xFFFF;
+        if (count >= MAX_ITEM_STACK) revert PocketsFull();
+        pockets[id][body] = p + (uint256(1) << (16 * item));
+        pot[id] += msg.value;
+        emit Bought(id, body, uint8(s), item, msg.value);
+    }
+
+    /// @notice Use an item from the pockets of the body you wear right now.
+    function use(uint256 id, uint8 body, uint8 item) external {
+        Night storage n = nights[id];
+        _sync(id, n);
+        if (_isOver(n) || n.startBlock == 0 || block.number < n.startBlock) revert NightOver();
+        if (item >= ITEM_COUNT) revert NoItem();
+        uint256 s = soulIndexPlus1[id][msg.sender];
+        if (s == 0) revert NotASoul();
+        s -= 1;
+        if ((epochs[id][n.epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
+        uint256 p = pockets[id][body];
+        if ((p >> (16 * item)) & 0xFFFF == 0) revert NoItem();
+        pockets[id][body] = p - (uint256(1) << (16 * item));
+        Body storage b = bodies[id][body];
+        uint32 pos = b.nSamples == 0 ? uint32((spawns >> (32 * body)) & 0xFFFFFFFF) : b.lastPos;
+        emit Used(id, body, uint8(s), item, pos, uint64(block.number));
+    }
+
+    function getPockets(uint256 id) external view returns (uint256[] memory out) {
+        uint256 c = nights[id].nSouls;
+        out = new uint256[](c);
+        for (uint256 i = 0; i < c; i++) {
+            out[i] = pockets[id][i];
+        }
+    }
+
+    // ================================================================ watchers
+
+    /// @notice Watchers pay to torment a running night. Every fee goes to the survivors' pot.
+    /// @param kind 1 lights out around a body, 2 whisper at a body, 3 scream at a body, 4 force an early shift
+    function torment(uint256 id, uint8 kind, uint8 body) external payable {
+        Night storage n = nights[id];
+        if (n.startBlock == 0 || block.number < n.startBlock) revert NotStarted();
+        if (_isOver(n)) revert NightOver();
+        if (kind == 0 || kind > TORMENT_FORCE_SHIFT || body >= n.nSouls) revert InvalidProof();
+        uint256 fee = kind == TORMENT_FORCE_SHIFT ? TORMENT_FEE * FORCE_SHIFT_MULTIPLIER : TORMENT_FEE;
+        if (msg.value < fee) revert FeeTooLow();
+        _sync(id, n);
+        if (kind == TORMENT_FORCE_SHIFT) {
+            if (n.lastForcedShift != 0 && block.number < n.lastForcedShift + FORCE_SHIFT_COOLDOWN) revert Cooldown();
+            n.lastForcedShift = uint64(block.number);
+            uint256 soon = block.number + FORCE_SHIFT_DELAY;
+            if (n.nextShift > soon) n.nextShift = uint64(soon);
+        }
+        pot[id] += msg.value;
+        emit Torment(id, msg.sender, kind, body, uint64(block.number), msg.value);
+    }
+
+    /// @notice After the night, each escaped soul claims an equal share of the watchers' pot.
+    function claimPot(uint256 id) external {
+        Night storage n = nights[id];
+        if (!_isOver(n)) revert NightOver();
+        uint256 s = soulIndexPlus1[id][msg.sender];
+        if (s == 0) revert NotASoul();
+        s -= 1;
+        if (souls[id][s].escapedRel == 0 || potClaimed[id][s] || n.escapedCount == 0) revert NothingToClaim();
+        potClaimed[id][s] = true;
+        uint256 share = pot[id] / n.escapedCount;
+        emit PotClaimed(id, uint8(s), share);
+        (bool ok,) = msg.sender.call{value: share}("");
+        require(ok, "transfer failed");
+    }
+
+    /// @notice If nobody escaped, the pot haunts the next night instead.
+    function rollOver(uint256 id, uint256 toNight) external {
+        Night storage n = nights[id];
+        if (!_isOver(n) || n.escapedCount != 0) revert NothingToClaim();
+        if (toNight <= id || nights[toNight].host == address(0) || _isOver(nights[toNight])) revert InvalidProof();
+        uint256 amount = pot[id];
+        if (amount == 0) revert NothingToClaim();
+        pot[id] = 0;
+        pot[toNight] += amount;
+        emit PotRolledOver(id, toNight, amount);
     }
 
     /// @notice Anyone can push pending shifts forward (clients do it automatically).
@@ -472,7 +620,7 @@ contract Hollow {
 
     // ================================================================ views for clients
 
-    function getWalls() external view returns (uint256[4] memory) {
+    function getWalls() external view returns (uint256[16] memory) {
         return walls;
     }
 

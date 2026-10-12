@@ -1,0 +1,180 @@
+import * as THREE from 'three';
+import { flashlightCookie } from './textures';
+import { HEIGHT, isSolidAt } from './world';
+
+const RADIUS = 0.28;
+const EYE = 1.62;
+const WALK = 2.3;
+const SPRINT = 4.3;
+
+/** First-person bodycam controller: pointer-lock look, WASD, sprint stamina, flashlight. */
+export class Player {
+  readonly camera: THREE.PerspectiveCamera;
+  readonly yawObj = new THREE.Object3D();
+  readonly pitchObj = new THREE.Object3D();
+  readonly position = new THREE.Vector3();
+  readonly velocity = new THREE.Vector3();
+  readonly flashlight: THREE.SpotLight;
+  private keys = new Set<string>();
+  stamina = 1;
+  battery = 1;
+  flashlightOn = true;
+  sprinting = false;
+  moving = false;
+  enabled = false;
+  private bob = 0;
+  private stepAcc = 0;
+  onStep?: (sprint: boolean) => void;
+  onFlashlight?: (on: boolean) => void;
+  onVoice?: (id: number) => void;
+  hands: THREE.Group;
+  private sleeveMat: THREE.MeshStandardMaterial;
+  private bandMat: THREE.MeshStandardMaterial;
+  shake = 0;
+
+  constructor(scene: THREE.Scene, private dom: HTMLElement) {
+    this.camera = new THREE.PerspectiveCamera(82, innerWidth / innerHeight, 0.05, 80);
+    this.yawObj.add(this.pitchObj);
+    this.pitchObj.add(this.camera);
+    scene.add(this.yawObj);
+
+    this.flashlight = new THREE.SpotLight(0xfff6e6, 38, 22, 0.46, 0.55, 1.6);
+    this.flashlight.map = flashlightCookie();
+    this.flashlight.castShadow = true;
+    this.flashlight.shadow.mapSize.set(1024, 1024);
+    this.flashlight.shadow.camera.near = 0.2;
+    this.flashlight.shadow.bias = -0.0008;
+    this.flashlight.position.set(0.18, -0.18, 0.1);
+    this.flashlight.target.position.set(0.05, -0.12, -3);
+    this.camera.add(this.flashlight, this.flashlight.target);
+
+    // first-person hands: a sleeve and a pale hand holding the torch, with an ID wristband
+    this.hands = new THREE.Group();
+    this.sleeveMat = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, roughness: 0.9 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xc9b39a, roughness: 0.65 });
+    this.bandMat = new THREE.MeshStandardMaterial({ color: 0xe8e2cf, roughness: 0.6 });
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.42, 10), this.sleeveMat);
+    sleeve.rotation.x = Math.PI / 2.3;
+    sleeve.position.set(0.24, -0.3, -0.18);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 10), skin);
+    hand.scale.set(1, 0.8, 1.3);
+    hand.position.set(0.22, -0.22, -0.4);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.035, 12), this.bandMat);
+    band.rotation.x = Math.PI / 2.3;
+    band.position.set(0.225, -0.245, -0.36);
+    const torch = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.028, 0.034, 0.2, 12),
+      new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.4, metalness: 0.7 }),
+    );
+    torch.rotation.x = Math.PI / 2;
+    torch.position.set(0.2, -0.2, -0.48);
+    this.hands.add(sleeve, hand, band, torch);
+    this.camera.add(this.hands);
+
+    addEventListener('keydown', (e) => this.key(e, true));
+    addEventListener('keyup', (e) => this.key(e, false));
+    addEventListener('mousemove', (e) => this.look(e));
+    addEventListener('resize', () => {
+      this.camera.aspect = innerWidth / innerHeight;
+      this.camera.updateProjectionMatrix();
+    });
+  }
+
+  /** dress the hands in the body you currently wear */
+  wear(color: THREE.ColorRepresentation, skinTone?: THREE.ColorRepresentation) {
+    this.sleeveMat.color.set(color);
+    if (skinTone) (this.hands.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>).material.color.set(skinTone);
+  }
+
+  lock() {
+    this.dom.requestPointerLock?.();
+  }
+
+  get locked() {
+    return document.pointerLockElement === this.dom;
+  }
+
+  private key(e: KeyboardEvent, down: boolean) {
+    if (!this.enabled) return;
+    const k = e.code;
+    if (down) this.keys.add(k);
+    else this.keys.delete(k);
+    if (down && k === 'KeyF' && !e.repeat) {
+      this.flashlightOn = !this.flashlightOn;
+      this.onFlashlight?.(this.flashlightOn);
+    }
+    if (down && !e.repeat && /^Digit[1-6]$/.test(k)) this.onVoice?.(Number(k.slice(5)));
+  }
+
+  private look(e: MouseEvent) {
+    if (!this.enabled || !this.locked) return;
+    this.yawObj.rotation.y -= e.movementX * 0.0022;
+    this.pitchObj.rotation.x = THREE.MathUtils.clamp(this.pitchObj.rotation.x - e.movementY * 0.0022, -1.45, 1.35);
+  }
+
+  get pitch() {
+    return this.pitchObj.rotation.x;
+  }
+
+  get yaw() {
+    return this.yawObj.rotation.y;
+  }
+
+  teleport(x: number, z: number, yaw?: number) {
+    this.position.set(x, 0, z);
+    this.velocity.set(0, 0, 0);
+    if (yaw !== undefined) this.yawObj.rotation.y = yaw;
+  }
+
+  private collide(nx: number, nz: number): [number, number] {
+    // axis-separated circle vs grid
+    const free = (x: number, z: number) =>
+      !isSolidAt(x - RADIUS, z - RADIUS) && !isSolidAt(x + RADIUS, z - RADIUS) && !isSolidAt(x - RADIUS, z + RADIUS) && !isSolidAt(x + RADIUS, z + RADIUS);
+    let x = this.position.x;
+    let z = this.position.z;
+    if (free(nx, z)) x = nx;
+    if (free(x, nz)) z = nz;
+    return [x, z];
+  }
+
+  update(dt: number, opts: { speedScale?: number } = {}) {
+    const f = (this.keys.has('KeyW') || this.keys.has('ArrowUp') ? 1 : 0) - (this.keys.has('KeyS') || this.keys.has('ArrowDown') ? 1 : 0);
+    const s = (this.keys.has('KeyD') || this.keys.has('ArrowRight') ? 1 : 0) - (this.keys.has('KeyA') || this.keys.has('ArrowLeft') ? 1 : 0);
+    const wantsSprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    this.moving = this.enabled && (f !== 0 || s !== 0);
+    this.sprinting = this.moving && wantsSprint && this.stamina > 0.05;
+    this.stamina = THREE.MathUtils.clamp(this.stamina + (this.sprinting ? -dt / 5.5 : dt / 9), 0, 1);
+    const speed = (this.sprinting ? SPRINT : WALK) * (opts.speedScale ?? 1);
+
+    const dir = new THREE.Vector3(s, 0, -f);
+    if (dir.lengthSq() > 0) dir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+    const target = dir.multiplyScalar(this.moving ? speed : 0);
+    this.velocity.lerp(target, 1 - Math.exp(-dt * 10));
+    const [x, z] = this.collide(this.position.x + this.velocity.x * dt, this.position.z + this.velocity.z * dt);
+    this.position.x = x;
+    this.position.z = z;
+
+    // head bob + footsteps
+    const v = Math.hypot(this.velocity.x, this.velocity.z);
+    this.bob += dt * v * 2.6;
+    this.stepAcc += dt * v;
+    if (this.stepAcc > (this.sprinting ? 0.95 : 0.75)) {
+      this.stepAcc = 0;
+      this.onStep?.(this.sprinting);
+    }
+    const bobY = Math.sin(this.bob) * 0.035 * Math.min(v / WALK, 1.6);
+    const bobX = Math.cos(this.bob * 0.5) * 0.02 * Math.min(v / WALK, 1.6);
+    this.shake = Math.max(0, this.shake - dt * 2);
+    const sh = this.shake * 0.05;
+    this.yawObj.position.set(this.position.x + bobX + (Math.random() - 0.5) * sh, EYE + bobY + (Math.random() - 0.5) * sh, this.position.z);
+    this.yawObj.position.y = Math.min(this.yawObj.position.y, HEIGHT - 0.15);
+    this.camera.rotation.z = bobX * 0.5;
+
+    // flashlight battery
+    if (this.flashlightOn) this.battery = Math.max(0, this.battery - dt / 240);
+    else this.battery = Math.min(1, this.battery + dt / 600);
+    const flicker = this.battery < 0.2 ? (Math.random() < (0.2 - this.battery) * 2 ? 0.1 : 1) : 1;
+    this.flashlight.intensity = this.flashlightOn && this.battery > 0 ? 38 * Math.min(1, 0.35 + this.battery) * flicker : 0;
+    this.hands.position.y = bobY * 0.5;
+  }
+}

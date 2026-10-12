@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HOLLOW — something is wearing you</title>
+    <meta name="description" content="An onchain body-swap horror game on Monad. Every step is a transaction. Every death is permanent." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=VT323&family=Special+Elite&family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+
+    <!-- bodycam overlay -->
+    <div id="hud" class="hidden">
+      <div class="corner tl">
+        <div><span id="rec">● REC</span> <span id="cam">CAM --</span></div>
+        <div id="clock">WAITING</div>
+      </div>
+      <div class="corner tr">
+        <div id="blocknum">BLOCK #—</div>
+        <div class="net">MONAD · <span id="watchers">0 WATCHING</span></div>
+        <div id="latency"></div>
+      </div>
+      <div class="corner bl">
+        <div>TORCH <span id="battery">▮▮▮▮▮</span></div>
+        <div class="stamina"><div id="stamina"></div></div>
+      </div>
+      <div class="corner br">
+        <div id="living">— LIVING</div>
+        <div id="txfeed"></div>
+      </div>
+      <div id="objective"></div>
+      <div id="place"></div>
+      <div id="prompt" class="hidden"></div>
+      <div id="items"></div>
+      <div id="feed"></div>
+      <div id="subs"></div>
+      <div id="wrist"><div id="wrist-id"></div><div id="wrist-vitals"></div></div>
+      <div id="controls">
+        <span>WASD MOVE</span><span>SHIFT RUN</span><span>F TORCH</span><span>E INTERACT</span><span>TAB ITEM</span><span>Q USE</span><span>M MAP</span><span>LOOK DOWN · YOUR HANDS</span>
+        <span>1 HELP</span><span>2 HERE</span><span>3 IT'S ME</span><span>4 DON'T TRUST</span><span>5 FUSE</span><span>6 RUN</span>
+      </div>
+      <div id="watchpanel" class="hidden">
+        <div class="wp-title">WATCHER CONSOLE</div>
+        <div id="cams"></div>
+        <div class="wp-sub">TORMENT THIS CAMERA · fees go to whoever escapes</div>
+        <div id="torments"></div>
+      </div>
+      <div id="shop" class="hidden">
+        <div class="shop-title" id="shop-title">TERMINAL</div>
+        <div class="shop-sub">Pay in MON. It goes in this body's pockets — not yours. Proceeds go to the survivors.</div>
+        <div id="shop-items"></div>
+        <div class="shop-sub">E or ESC to close</div>
+      </div>
+      <div id="photo" class="hidden"><canvas id="photo-canvas" width="320" height="240"></canvas><div id="photo-cap"></div></div>
+      <div id="townmap" class="hidden"><canvas id="map-canvas" width="512" height="512"></canvas><div class="map-cap">HALDEN · you are the red mark · M to close</div></div>
+      <div id="center" class="hidden"><div id="center-title"></div><div id="center-sub"></div></div>
+      <div id="crosshair"></div>
+    </div>
+
+    <!-- title -->
+    <section id="title" class="screen">
+      <div class="title-wrap">
+        <h1 class="logo" data-text="HOLLOW">HOLLOW</h1>
+        <p class="tagline">something is wearing you.</p>
+        <p class="pitch">
+          Up to eight souls wake up in the Archive. Every 30–75 seconds the Monad chain reshuffles who is wearing whom.
+          One of you is Hollow. It turns whoever it touches — and they become Hollow too. Find three fuses. Get out.
+          <b>Every step you take is a transaction. Every death is permanent.</b>
+        </p>
+        <div class="row">
+          <input id="name" maxlength="16" placeholder="your name" autocomplete="off" />
+        </div>
+        <div class="row">
+          <button id="btn-play" class="primary">ENTER THE ARCHIVE</button>
+          <button id="btn-watch">WATCH &amp; TORMENT</button>
+        </div>
+        <div id="wallet" class="card">
+          <div class="label">SESSION WALLET (signs every step, no popups)</div>
+          <div class="addr"><code id="addr">—</code> <button id="copy" class="mini">copy</button></div>
+          <div class="bal">balance <b id="bal">—</b> MON <button id="fund" class="mini">top up 0.5 from my wallet</button></div>
+          <div class="hint">Needs testnet MON for gas. <a href="https://faucet.monad.xyz" target="_blank" rel="noopener">faucet.monad.xyz</a> → send to the address above.</div>
+        </div>
+        <p class="warn">Headphones. Dark room. Contains flashing images, loud noises and jump scares.</p>
+      </div>
+    </section>
+
+    <!-- lobby -->
+    <section id="lobby" class="screen hidden">
+      <div class="lobby-wrap">
+        <h2 id="lobby-title">NIGHTS</h2>
+        <div id="nights"></div>
+        <div class="row">
+          <button id="btn-create" class="primary">OPEN A NEW NIGHT</button>
+          <button id="btn-back">BACK</button>
+        </div>
+        <div id="night-detail" class="card hidden">
+          <div class="label" id="nd-title">NIGHT</div>
+          <div id="nd-souls"></div>
+          <div class="row">
+            <button id="btn-join" class="primary">JOIN</button>
+            <button id="btn-start">START NOW</button>
+            <button id="btn-enter">ENTER</button>
+          </div>
+          <div class="hint" id="nd-hint"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- end -->
+    <section id="end" class="screen hidden">
+      <div class="end-wrap">
+        <h2 id="end-title">DAWN</h2>
+        <p id="end-sub"></p>
+        <div class="card">
+          <div class="label">YOUR FEAR IS NOW PERMANENT</div>
+          <div id="end-txs"></div>
+        </div>
+        <div class="row"><button id="btn-claim" class="primary hidden">CLAIM YOUR SHARE OF THE POT</button><button id="btn-again">AGAIN</button></div>
+      </div>
+    </section>
+
+    <div id="toast"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

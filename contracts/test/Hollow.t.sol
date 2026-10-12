@@ -6,7 +6,7 @@ import {Hollow} from "../src/Hollow.sol";
 
 contract HollowTest is Test {
     Hollow hollow;
-    uint256 constant CELL = 250;
+    uint256 constant CELL = 300;
     address[] players;
 
     function cellCm(uint256 cx, uint256 cy) internal pure returns (uint256) {
@@ -19,10 +19,10 @@ contract HollowTest is Test {
 
     function setUp() public {
         // open 32x32 room: solid border + one internal wall column at x=10, y=5..20
-        uint256[4] memory walls;
-        for (uint256 y = 0; y < 32; y++) {
-            for (uint256 x = 0; x < 32; x++) {
-                bool solid = x == 0 || y == 0 || x == 31 || y == 31 || (x == 10 && y >= 5 && y <= 20);
+        uint256[16] memory walls;
+        for (uint256 y = 0; y < 64; y++) {
+            for (uint256 x = 0; x < 64; x++) {
+                bool solid = x == 0 || y == 0 || x == 63 || y == 63 || (x == 10 && y >= 5 && y <= 20);
                 if (solid) {
                     uint256 bit = y * 32 + x;
                     walls[bit >> 8] |= 1 << (bit & 255);
@@ -33,7 +33,8 @@ contract HollowTest is Test {
         for (uint256 i = 0; i < 8; i++) {
             spawns |= cellCm(2 + 2 * i, 2) << (32 * i);
         }
-        uint256 objectives = cellCm(5, 8) | (cellCm(6, 8) << 32) | (cellCm(7, 8) << 64) | (cellCm(8, 12) << 96);
+        uint256 objectives = cellCm(5, 8) | (cellCm(6, 8) << 32) | (cellCm(7, 8) << 64) | (cellCm(8, 12) << 96)
+            | (cellCm(3, 3) << 128) | (cellCm(4, 3) << 160) | (cellCm(5, 3) << 192);
         hollow = new Hollow(walls, spawns, objectives);
         for (uint256 i = 0; i < 8; i++) {
             players.push(makeAddr(string(abi.encodePacked("p", vm.toString(i)))));
@@ -53,7 +54,7 @@ contract HollowTest is Test {
     }
 
     function _start(uint256 id) internal view returns (uint256 s) {
-        (,,,,,, s,,,,) = hollow.nights(id);
+        (,,,,,, s,,,,,,) = hollow.nights(id);
     }
 
     function _epochWord(uint256 id, uint256 e) internal view returns (uint256) {
@@ -92,7 +93,7 @@ contract HollowTest is Test {
             if (_hollowSince(id, i) != 0) hollows++;
         }
         assertEq(hollows, 1);
-        (,,, uint8 living,,,,,,,) = hollow.nights(id);
+        (,,, uint8 living,,,,,,,,,) = hollow.nights(id);
         assertEq(living, 3);
         // epoch 0: everyone in their own body
         for (uint256 b = 0; b < 4; b++) {
@@ -146,20 +147,27 @@ contract HollowTest is Test {
         // walk next to the wall, then try to hop through it in one sample (midpoint is inside the wall)
         uint256[] memory pts = new uint256[](4);
         pts[0] = cellCm(2, 2);
-        pts[1] = cellCm(3, 3);
-        pts[2] = cellCm(4, 4);
-        pts[3] = cellCm(5, 5);
+        pts[1] = cellCm(2, 3);
+        pts[2] = cellCm(2, 4);
+        pts[3] = cellCm(2, 5);
         _rec(id, players[0], 0, 0, pts, 0);
         uint256[] memory more = new uint256[](3);
-        more[0] = cellCm(6, 6);
-        more[1] = cellCm(7, 6);
-        more[2] = cellCm(8, 6);
+        more[0] = cellCm(2, 6);
+        more[1] = cellCm(3, 6);
+        more[2] = cellCm(4, 6);
         _rec(id, players[0], 0, 4, more, 0);
-        _rec(id, players[0], 0, 7, _one(pt(9 * CELL + 240, 6 * CELL + 125)), 0); // hugging the wall
+        uint256[] memory walk = new uint256[](5);
+        walk[0] = cellCm(5, 6);
+        walk[1] = cellCm(6, 6);
+        walk[2] = cellCm(7, 6);
+        walk[3] = cellCm(8, 6);
+        walk[4] = cellCm(9, 6);
+        _rec(id, players[0], 0, 7, walk, 0);
+        _rec(id, players[0], 0, 12, _one(pt(9 * CELL + 290, 6 * CELL + 150)), 0); // hugging the wall
         vm.roll(block.number + 2);
         vm.prank(players[0]);
         vm.expectRevert(Hollow.BadSamples.selector);
-        hollow.record(id, 0, 8, pt(11 * CELL + 10, 6 * CELL + 125), 1, 0);
+        hollow.record(id, 0, 13, pt(11 * CELL + 10, 6 * CELL + 150), 1, 0);
     }
 
     function test_samplesMustBeTimely() public {
@@ -187,10 +195,10 @@ contract HollowTest is Test {
 
     function test_shiftMovesEverySoulToAnotherBody() public {
         uint256 id = _night(5);
-        (,,,,,,, uint64 nextShift,,,) = hollow.nights(id);
+        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
         vm.roll(nextShift);
         hollow.sync(id);
-        (,,,,,,,,,, uint32 epoch) = hollow.nights(id);
+        (,,,,,,,,,, uint32 epoch,,) = hollow.nights(id);
         assertEq(epoch, 1);
         bool[5] memory seen;
         for (uint256 b = 0; b < 5; b++) {
@@ -236,7 +244,7 @@ contract HollowTest is Test {
         vm.roll(block.number + 50);
         hollow.turn(id, 0, uint8(v), uint8(h), touch);
         assertEq(_hollowSince(id, v), _start(id) + 2 * uint256(touch));
-        (,,, uint8 living,,,,,,,) = hollow.nights(id);
+        (,,, uint8 living,,,,,,,,,) = hollow.nights(id);
         assertEq(living, 1);
         // a living body cannot "turn" anyone
         vm.expectRevert(Hollow.InvalidProof.selector);
@@ -306,7 +314,8 @@ contract HollowTest is Test {
         hollow.escape(id, 0, body, later);
         (, , uint32 escapedRel) = hollow.souls(id, v);
         assertGt(escapedRel, 0);
-        (,,, uint8 living,, uint8 goneMask,,,,,) = hollow.nights(id);
+        (,,, uint8 living,, uint8 goneMask,,,,,, uint8 escapedCount,) = hollow.nights(id);
+        assertEq(escapedCount, 1);
         assertEq(living, 0);
         assertEq(goneMask, 1 << v);
     }
@@ -329,12 +338,120 @@ contract HollowTest is Test {
         hollow.record(id, 0, 3, packed, 3, 0);
         emit log_named_uint("record(3) gas (excl. 21k base)", g - gasleft());
         // shift-triggering record
-        (,,,,,,, uint64 nextShift,,,) = hollow.nights(id);
+        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
         vm.roll(nextShift);
         uint256 s = _soulInBody(id, 0, 0);
         s = s; // silence
         g = gasleft();
         hollow.sync(id);
         emit log_named_uint("sync() applying one shift, 8 souls", g - gasleft());
+    }
+
+    function test_watchersTormentAndForceShift() public {
+        uint256 id = _night(4);
+        address watcher = makeAddr("watcher");
+        vm.deal(watcher, 1 ether);
+        vm.roll(_start(id) + 5);
+        vm.prank(watcher);
+        vm.expectRevert(Hollow.FeeTooLow.selector);
+        hollow.torment{value: 0.001 ether}(id, 1, 0);
+        vm.prank(watcher);
+        hollow.torment{value: 0.01 ether}(id, 2, 1);
+        vm.prank(watcher);
+        hollow.torment{value: 0.05 ether}(id, 4, 0);
+        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
+        assertEq(nextShift, block.number + 10);
+        // cooldown
+        vm.prank(watcher);
+        vm.expectRevert(Hollow.Cooldown.selector);
+        hollow.torment{value: 0.05 ether}(id, 4, 0);
+        assertEq(hollow.pot(id), 0.06 ether);
+        vm.roll(nextShift);
+        hollow.sync(id);
+        (,,,,,,,,,, uint32 epoch,,) = hollow.nights(id);
+        assertEq(epoch, 1);
+    }
+
+    function test_survivorsSplitThePot() public {
+        // reuse the escape walk, then fund the pot and claim after the night
+        uint256 id = _night(2);
+        address watcher = makeAddr("watcher");
+        vm.deal(watcher, 1 ether);
+        vm.roll(_start(id) + 1);
+        vm.prank(watcher);
+        hollow.torment{value: 0.02 ether}(id, 3, 0);
+        uint256 h;
+        for (uint256 i = 0; i < 2; i++) {
+            if (_hollowSince(id, i) != 0) h = i;
+        }
+        uint256 v = 1 - h;
+        vm.prank(players[v]);
+        vm.expectRevert(Hollow.NightOver.selector);
+        hollow.claimPot(id);
+        vm.roll(_start(id) + 2400);
+        vm.prank(players[v]);
+        vm.expectRevert(Hollow.NothingToClaim.selector);
+        hollow.claimPot(id); // did not escape
+        vm.prank(players[0]);
+        uint256 next = hollow.createNight();
+        hollow.rollOver(id, next);
+        assertEq(hollow.pot(next), 0.02 ether);
+    }
+
+    function test_shopsSellIntoTheBodysPockets() public {
+        uint256 id = _night(3);
+        vm.deal(players[0], 1 ether);
+        // body 0 spawns at (2,2); the 24/7 mart counter is at (3,3), the pharmacy at (4,3)
+        uint256[] memory pts = new uint256[](3);
+        pts[0] = cellCm(2, 2);
+        pts[1] = cellCm(3, 2);
+        pts[2] = cellCm(3, 3);
+        _rec(id, players[0], 0, 0, pts, 0);
+        // too cheap
+        vm.prank(players[0]);
+        vm.expectRevert(Hollow.FeeTooLow.selector);
+        hollow.buy{value: 0.001 ether}(id, 0, 0, 2, 0);
+        // pills are sold at the pharmacy, not here
+        vm.prank(players[0]);
+        vm.expectRevert(Hollow.NotAtShop.selector);
+        hollow.buy{value: 0.004 ether}(id, 0, 0, 2, 3);
+        // a battery from the mart
+        vm.prank(players[0]);
+        hollow.buy{value: 0.004 ether}(id, 0, 0, 2, 0);
+        assertEq(hollow.pockets(id, 0) & 0xFFFF, 1);
+        assertEq(hollow.pot(id), 0.004 ether);
+        // someone else cannot use body 0's battery
+        vm.prank(players[1]);
+        vm.expectRevert(Hollow.NotYourBody.selector);
+        hollow.use(id, 0, 0);
+        vm.prank(players[0]);
+        hollow.use(id, 0, 0);
+        assertEq(hollow.pockets(id, 0) & 0xFFFF, 0);
+        vm.prank(players[0]);
+        vm.expectRevert(Hollow.NoItem.selector);
+        hollow.use(id, 0, 0);
+    }
+
+    function test_pocketsStayWithTheBodyAfterAShift() public {
+        uint256 id = _night(3);
+        vm.deal(players[0], 1 ether);
+        uint256[] memory pts = new uint256[](3);
+        pts[0] = cellCm(2, 2);
+        pts[1] = cellCm(3, 2);
+        pts[2] = cellCm(3, 3);
+        _rec(id, players[0], 0, 0, pts, 0);
+        vm.prank(players[0]);
+        hollow.buy{value: 0.008 ether}(id, 0, 0, 2, 1); // a flare in body 0's pocket
+        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
+        vm.roll(nextShift);
+        hollow.sync(id);
+        uint256 wearer = _soulInBody(id, 1, 0);
+        assertTrue(wearer != 0);
+        // the original owner lost it; whoever wears body 0 now can light it
+        vm.prank(players[0]);
+        vm.expectRevert(Hollow.NotYourBody.selector);
+        hollow.use(id, 0, 1);
+        vm.prank(players[wearer]);
+        hollow.use(id, 0, 1);
     }
 }
