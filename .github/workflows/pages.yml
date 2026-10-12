@@ -2,7 +2,7 @@ name: Deploy web client to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/nice-davinci-v7bkuf]
   workflow_dispatch:
 
 permissions:

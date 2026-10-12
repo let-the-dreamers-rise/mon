@@ -1,5 +1,21 @@
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { loadGltf } from './assets';
 import { label } from './textures';
+
+interface Rig {
+  model: THREE.Object3D;
+  mixer: THREE.AnimationMixer;
+  idle: THREE.AnimationAction;
+  walk: THREE.AnimationAction;
+  run: THREE.AnimationAction;
+  twitch: THREE.AnimationAction;
+  look: THREE.AnimationAction;
+  reach: THREE.AnimationAction;
+  torch: THREE.Object3D | null;
+}
+
+let additiveCache: { twitch: THREE.AnimationClip; look: THREE.AnimationClip } | null = null;
 
 /** jumpsuit colours: each body is a worker of the Archive */
 export const SUITS = [0x40536a, 0x6a4a3a, 0x3f5e48, 0x5f5a3a, 0x5a3f5f, 0x3a5f5f, 0x6a3a3a, 0x4a4a4a];
@@ -25,6 +41,8 @@ export class Figure {
   heading = 0;
   speed = 0;
   opacity = 1;
+  private rig: Rig | null = null;
+  private procedural: THREE.Object3D[] = [];
 
   constructor(body: number, name: string, withLight: boolean) {
     const suit = new THREE.MeshStandardMaterial({ color: SUITS[body % 8], roughness: 0.85 });
@@ -88,6 +106,103 @@ export class Figure {
     void withLight;
 
     this.root.add(this.torso, this.head, this.armL, this.armR, this.legL, this.legR, tag, this.beam);
+    this.procedural = [this.torso, this.head, this.armL, this.armR, this.legL, this.legR, tag];
+    void this.upgrade(body, name);
+  }
+
+  /** swap the stand-in mannequin for the rigged Blender worker once it has loaded */
+  private async upgrade(body: number, name: string) {
+    const g = await loadGltf('models/worker.glb');
+    if (!g) return;
+    const model = SkeletonUtils.clone(g.scene);
+    model.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const out = mats.map((m) => {
+        const mat = m as THREE.MeshStandardMaterial;
+        if (mat.name === 'Suit') {
+          const c = mat.clone();
+          c.color.set(SUITS[body % 8]);
+          return c;
+        }
+        if (mat.name === 'Skin') {
+          const c = mat.clone();
+          c.color.set(0xd8d2c8); // every face is the same: pale, smooth, nothing there
+          return c;
+        }
+        if (mat.name === 'Tag') {
+          const c = mat.clone();
+          const t = label(name || '??????');
+          t.flipY = false;
+          c.map = t;
+          c.color.set(0xffffff);
+          return c;
+        }
+        return mat;
+      });
+      mesh.material = Array.isArray(mesh.material) ? out : out[0];
+    });
+    const mixer = new THREE.AnimationMixer(model);
+    const clip = (n: string) => g.animations.find((a) => a.name === n)!;
+    if (!additiveCache) {
+      additiveCache = {
+        twitch: THREE.AnimationUtils.makeClipAdditive(clip('Twitch').clone()),
+        look: THREE.AnimationUtils.makeClipAdditive(clip('Look').clone()),
+      };
+    }
+    const act = (c: THREE.AnimationClip, loop = true) => {
+      const a = mixer.clipAction(c);
+      a.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+      a.clampWhenFinished = !loop;
+      return a;
+    };
+    const idle = act(clip('Idle'));
+    const walk = act(clip('Walk'));
+    const run = act(clip('Run'));
+    const twitch = act(additiveCache.twitch, false);
+    twitch.blendMode = THREE.AdditiveAnimationBlendMode;
+    const look = act(additiveCache.look, false);
+    look.blendMode = THREE.AdditiveAnimationBlendMode;
+    const reach = act(clip('Reach'), false);
+    for (const a of [idle, walk, run]) {
+      a.play();
+      a.setEffectiveWeight(0);
+      a.time = Math.random() * a.getClip().duration;
+    }
+    idle.setEffectiveWeight(1);
+    const torch = model.getObjectByName('Torch') ?? null;
+    if (torch) {
+      // the light shaft comes out of the real torch lens
+      this.root.remove(this.beam);
+      torch.add(this.beam);
+      this.beam.position.set(0, 0, -0.09);
+      this.beam.rotation.set(0, Math.PI, 0);
+      this.beam.scale.setScalar(1 / Math.max(0.001, torch.getWorldScale(new THREE.Vector3()).x));
+    }
+    for (const o of this.procedural) o.visible = false;
+    this.root.add(model);
+    this.rig = { model, mixer, idle, walk, run, twitch, look, reach, torch };
+  }
+
+  /** the lunge that turns you */
+  reach() {
+    const r = this.rig;
+    if (!r) return;
+    r.reach.reset().setEffectiveWeight(1).fadeIn(0.05).play();
+    for (const a of [r.idle, r.walk, r.run]) a.setEffectiveWeight(0);
+  }
+
+  /** where the torch light should come from, and where it points */
+  torchRay(pos: THREE.Vector3, dir: THREE.Vector3): boolean {
+    const t = this.rig?.torch;
+    if (!t) return false;
+    t.getWorldPosition(pos);
+    dir.set(0, 0, -1).applyQuaternion(t.getWorldQuaternion(new THREE.Quaternion()));
+    return true;
   }
 
   setTorch(on: boolean) {
@@ -107,6 +222,10 @@ export class Figure {
       this.heading += d * Math.min(1, dt * 7);
     }
     this.root.rotation.y = this.heading;
+    if (this.rig) {
+      this.animateRig(now, dt);
+      return;
+    }
     this.phase += dt * (2 + this.speed * 2.4);
     const swing = Math.min(this.speed / 2.5, 1.4) * 0.65;
     this.legL.rotation.x = Math.sin(this.phase) * swing;
@@ -124,6 +243,27 @@ export class Figure {
     this.twitch *= Math.exp(-dt * 3);
     this.head.rotation.z = this.twitch * 0.5;
     this.head.rotation.y = this.twitch;
+  }
+
+  private animateRig(now: number, dt: number) {
+    const r = this.rig!;
+    const v = this.speed;
+    const walkW = THREE.MathUtils.clamp((v - 0.15) / 0.6, 0, 1) * (1 - THREE.MathUtils.clamp((v - 2.4) / 1.2, 0, 1));
+    const runW = THREE.MathUtils.clamp((v - 2.4) / 1.2, 0, 1);
+    const idleW = 1 - Math.max(walkW, runW);
+    if (!r.reach.isRunning()) {
+      r.idle.setEffectiveWeight(idleW);
+      r.walk.setEffectiveWeight(walkW);
+      r.run.setEffectiveWeight(runW);
+    }
+    r.walk.timeScale = THREE.MathUtils.clamp(v / 1.4, 0.6, 1.8);
+    r.run.timeScale = THREE.MathUtils.clamp(v / 4.3, 0.7, 1.4);
+    // the uncanny part: a too-sharp twitch or a slow look, the same for every figure
+    if (now > this.twitchAt) {
+      this.twitchAt = now + 4000 + Math.random() * 10000;
+      (Math.random() < 0.6 ? r.twitch : r.look).reset().setEffectiveWeight(1).play();
+    }
+    r.mixer.update(dt);
   }
 
   setOpacity(o: number) {

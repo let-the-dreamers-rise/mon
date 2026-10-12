@@ -111,6 +111,20 @@ export function loadModel(id: string): Promise<THREE.Group | null> {
   return p;
 }
 
+/** the full glTF (scene + animations), cached */
+const gltfCache = new Map<string, Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] } | null>>();
+export function loadGltf(path: string) {
+  let p = gltfCache.get(path);
+  if (!p) {
+    p = gltf.loadAsync(BASE + path).then(
+      (g) => ({ scene: g.scene, animations: g.animations }),
+      () => null,
+    );
+    gltfCache.set(path, p);
+  }
+  return p;
+}
+
 export async function hasModel(id: string) {
   const m = await loadManifest();
   return !!m.models?.[id];

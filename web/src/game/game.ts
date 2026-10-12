@@ -292,8 +292,15 @@ export class Game {
         return;
       }
       const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), c.f.heading);
-      sp.position.copy(c.f.root.position).add(new THREE.Vector3(0, 1.25, 0)).addScaledVector(fwd, 0.3);
-      sp.target.position.copy(sp.position).addScaledVector(fwd, 4).setY(0.6);
+      const tp = new THREE.Vector3();
+      const td = new THREE.Vector3();
+      if (c.f.torchRay(tp, td)) {
+        sp.position.copy(tp);
+        sp.target.position.copy(tp).addScaledVector(td, 4);
+      } else {
+        sp.position.copy(c.f.root.position).add(new THREE.Vector3(0, 1.25, 0)).addScaledVector(fwd, 0.3);
+        sp.target.position.copy(sp.position).addScaledVector(fwd, 4).setY(0.6);
+      }
       sp.intensity = 14;
     });
 
@@ -313,8 +320,10 @@ export class Game {
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion()));
       const eye = cam.getWorldPosition(new THREE.Vector3());
       const dist = Math.max(0.25, 2.2 - js.t * 6);
-      js.fig.root.position.copy(eye).addScaledVector(fwd, dist).setY(eye.y - 1.65);
+      const at = eye.clone().addScaledVector(fwd, dist);
       js.fig.heading = Math.atan2(fwd.x, fwd.z);
+      js.fig.update(now, dt, at.x, at.z, 0, 0);
+      js.fig.root.position.y = eye.y - 1.65;
       js.fig.root.rotation.y = js.fig.heading;
       if (js.t > 1.1) {
         this.scene.remove(js.fig.root);
@@ -465,6 +474,7 @@ export class Game {
     fig.setTorch(false);
     this.scene.add(fig.root);
     this.jumpscare = { fig, t: 0 };
+    setTimeout(() => fig.reach(), 30);
     void this.audio.play('jumpscare_sting.mp3', 1);
     void this.audio.play('scream_turned.mp3', 0.8);
     this.fx.staticBurst = 1.4;
