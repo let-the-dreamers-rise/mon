@@ -295,4 +295,9 @@ function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
+if (new URLSearchParams(location.search).has('roam')) {
+  show('none');
+  game.roam();
+}
+
 if (IS_LOCAL) toast(`local mode · ${NET.rpcs[0]} · ${short(NET.hollow)}`);

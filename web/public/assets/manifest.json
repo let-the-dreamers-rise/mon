@@ -1,0 +1,397 @@
+{
+  "textures": {
+    "asphalt": {
+      "diff": "textures/asphalt_diff.jpg",
+      "nor": "textures/asphalt_nor.jpg",
+      "rough": "textures/asphalt_rough.jpg",
+      "source": "asphalt_02",
+      "repeatMeters": 3,
+      "note": "grey cracked road asphalt; for the rain look darken albedo and scale roughness down (~0.3-0.5x)"
+    },
+    "sidewalk": {
+      "diff": "textures/sidewalk_diff.jpg",
+      "nor": "textures/sidewalk_nor.jpg",
+      "rough": "textures/sidewalk_rough.jpg",
+      "source": "concrete_pavement_02",
+      "repeatMeters": 1.8,
+      "note": "large concrete sidewalk slabs"
+    },
+    "brick": {
+      "diff": "textures/brick_diff.jpg",
+      "nor": "textures/brick_nor.jpg",
+      "rough": "textures/brick_rough.jpg",
+      "source": "brick_wall_10",
+      "repeatMeters": 1.9,
+      "note": "dark weathered brick facade"
+    },
+    "concrete": {
+      "diff": "textures/concrete_diff.jpg",
+      "nor": "textures/concrete_nor.jpg",
+      "rough": "textures/concrete_rough.jpg",
+      "source": "concrete_wall_006",
+      "repeatMeters": 2,
+      "note": "stained, chipped concrete wall (facades, subway station)"
+    },
+    "plaster": {
+      "diff": "textures/plaster_diff.jpg",
+      "nor": "textures/plaster_nor.jpg",
+      "rough": "textures/plaster_rough.jpg",
+      "source": "painted_plaster_wall",
+      "repeatMeters": 2,
+      "note": "weathered painted plaster wall (hospital)"
+    },
+    "tiles": {
+      "diff": "textures/tiles_diff.jpg",
+      "nor": "textures/tiles_nor.jpg",
+      "rough": "textures/tiles_rough.jpg",
+      "source": "worn_tile_floor",
+      "repeatMeters": 2,
+      "note": "old dirty square floor tiles (hospital / station)"
+    },
+    "carpet": {
+      "diff": "textures/carpet_diff.jpg",
+      "nor": "textures/carpet_nor.jpg",
+      "rough": "textures/carpet_rough.jpg",
+      "source": "dirty_carpet",
+      "repeatMeters": 0.6,
+      "note": "dirty faded carpet (office); small tile, repeat often"
+    },
+    "metal": {
+      "diff": "textures/metal_diff.jpg",
+      "nor": "textures/metal_nor.jpg",
+      "rough": "textures/metal_rough.jpg",
+      "source": "rusty_metal_sheet",
+      "repeatMeters": 2,
+      "note": "flat rusty steel sheet (gates, shutters, doors); metalness ~0.6-1"
+    },
+    "wood": {
+      "diff": "textures/wood_diff.jpg",
+      "nor": "textures/wood_nor.jpg",
+      "rough": "textures/wood_rough.jpg",
+      "source": "weathered_planks",
+      "repeatMeters": 2,
+      "note": "worn grey-brown planks (fences, shop floors)"
+    },
+    "ground": {
+      "diff": "textures/ground_diff.jpg",
+      "nor": "textures/ground_nor.jpg",
+      "rough": "textures/ground_rough.jpg",
+      "source": "mud_forest",
+      "repeatMeters": 2.35,
+      "note": "dark wet mud with leaf litter (park / cemetery)"
+    }
+  },
+  "texturesSkipped": {
+    "wallpaper": "no Poly Haven texture resembles old patterned yellow wallpaper - use the procedural one"
+  },
+  "hdri": "hdri/night_1k.hdr",
+  "hdriSource": "kloppenheim_04",
+  "hdriNote": "overcast misty night field, sodium light-pollution glow on the horizon",
+  "models": {
+    "street_lamp_01": {
+      "file": "models/street_lamp_01.glb",
+      "size": [0.7, 3.87, 0.39],
+      "min": [-0.35, 0, -0.19],
+      "up": "+Y",
+      "note": "ornate cast-iron street lamp post, 3.9 m, origin at base; Main Street / park. Bulb material street_lamp_01_bulb is warm-emissive, glass is blended; add a PointLight/SpotLight ~3.5 m up"
+    },
+    "street_lamp_02": {
+      "file": "models/street_lamp_02.glb",
+      "size": [0.39, 1.68, 0.81],
+      "min": [-0.19, -0.39, 0],
+      "up": "+Y",
+      "note": "wall-mounted cast-iron lantern on a bracket: origin at the wall mount, wall plane z=0, lantern projects +Z (bulb material street_lamp_02_bulb is warm-emissive); building facades, station entrance"
+    },
+    "fire_hydrant": {
+      "file": "models/fire_hydrant.glb",
+      "size": [0.27, 0.8, 0.32],
+      "min": [-0.14, 0, -0.13],
+      "up": "+Y",
+      "note": "weathered red cast-iron fire hydrant (aged variant), origin at base; sidewalks"
+    },
+    "covered_car": {
+      "file": "models/covered_car.glb",
+      "size": [1.79, 1.41, 4.38],
+      "min": [-0.85, 0, -2.17],
+      "up": "+Y",
+      "note": "car hidden under a dusty fabric cover (4.4 m long, along Z), origin at ground; streets, parking lots"
+    },
+    "modular_chainlink_fence": {
+      "file": "models/modular_chainlink_fence.glb",
+      "size": [8.11, 2.52, 2.15],
+      "min": [-6.04, 0, -2.08],
+      "up": "+Y",
+      "note": "chain-link fence kit (~2.5 m tall): ~1 m panel (modular_chainlink_fence), ~2 m panel (modular_chainlink_fence_double), posts, corners, brackets, gate (door_frame/door_gate/door_latch). Kit pieces are laid out side by side - reset each part position when instancing. Wire material is alpha-tested (MASK, double-sided)",
+      "parts": ["modular_chainlink_fence_door_latch", "modular_chainlink_fence_door_gate", "modular_chainlink_fence_corner_outer", "modular_chainlink_fence_start_01_corner_01", "modular_chainlink_post_middle", "modular_chainlink_fence_end_01", "modular_chainlink_fence_end_02", "modular_chainlink_fence_door_frame", "modular_chainlink_fence_bar_bracket_01", "modular_chainlink_fence_post_bracket_02", "modular_chainlink_fence_bar_bracket_02", "modular_chainlink_fence_post_bracket_01", "modular_chainlink_fence_double", "modular_chainlink_fence", "modular_chainlink_fence_post_bracket_03", "modular_chainlink_fence_bar_bracket_03", "modular_chainlink_fence_post", "modular_chainlink_fence_corner_support", "modular_chainlink_fence_corner_inner", "modular_chainlink_fence_start_01_corner_02"]
+    },
+    "modular_electricity_poles": {
+      "file": "models/modular_electricity_poles.glb",
+      "size": [13.11, 7, 1.96],
+      "min": [-7.35, 0, -1.53],
+      "up": "+Y",
+      "note": "wooden utility pole kit. preset_01/02/03 = fully assembled ~6 m poles (one mesh each, group origin at pole base) - use these along streets; loose pieces kept for custom variants: pole, pole_large, pole_small (bare), connection_large_01 / connection_small_01 (crossarms with insulators), insulators_large, transformer_01 - laid out side by side, reset position when instancing (other tiny loose bolts/rings dropped)",
+      "parts": ["connection_large_01", "connection_small_01", "insulators_large", "pole", "pole_large", "pole_small", "transformer_01", "preset_01", "preset_02", "preset_03"]
+    },
+    "wheelchair_01": {
+      "file": "models/wheelchair_01.glb",
+      "size": [0.82, 1.1, 1.09],
+      "min": [-0.41, 0.01, -0.49],
+      "up": "+Y",
+      "note": "old hospital wheelchair, origin at ground; hospital corridors"
+    },
+    "old_bed_frame": {
+      "file": "models/old_bed_frame.glb",
+      "size": [0.9, 1.2, 2],
+      "min": [-0.45, 0, -1],
+      "up": "+Y",
+      "note": "rusty iron hospital bed frame with spring base (2 m, along Z), origin at ground; hospital wards"
+    },
+    "cardboard_box_01": {
+      "file": "models/cardboard_box_01.glb",
+      "size": [0.39, 0.34, 0.52],
+      "min": [-0.19, -0.01, -0.23],
+      "up": "+Y",
+      "note": "taped cardboard box, origin at base; offices, shops, alleys"
+    },
+    "barrel_03": {
+      "file": "models/barrel_03.glb",
+      "size": [0.63, 0.93, 0.64],
+      "min": [-0.32, 0, -0.32],
+      "up": "+Y",
+      "note": "blue steel 200 L drum; alleys, industrial areas"
+    },
+    "wooden_crate_01": {
+      "file": "models/wooden_crate_01.glb",
+      "size": [0.83, 0.35, 0.41],
+      "min": [-0.41, -0.01, -0.2],
+      "up": "+Y",
+      "note": "old wooden chest-crate; nodes: wooden_crate_01 (box), _lid, _latch (lid can be opened); storage rooms",
+      "parts": ["wooden_crate_01_lid", "wooden_crate_01", "wooden_crate_01_latch"]
+    },
+    "plastic_crate_01": {
+      "file": "models/plastic_crate_01.glb",
+      "size": [0.3, 0.26, 0.41],
+      "min": [-0.15, 0, -0.2],
+      "up": "+Y",
+      "note": "red plastic milk crate; shops, alleys"
+    },
+    "painted_wooden_bench": {
+      "file": "models/painted_wooden_bench.glb",
+      "size": [1.16, 0.89, 0.5],
+      "min": [-0.58, 0, -0.25],
+      "up": "+Y",
+      "note": "painted wooden bench with backrest; station platforms, hospital waiting room"
+    },
+    "industrial_wall_lamp": {
+      "file": "models/industrial_wall_lamp.glb",
+      "size": [0.27, 0.43, 0.14],
+      "min": [-0.14, -0.21, 0],
+      "up": "+Y",
+      "note": "caged bulkhead wall lamp with frosted glass (emissive map); back on wall plane z=0, faces +Z; subway, back alleys, stairwells"
+    },
+    "hanging_industrial_lamp": {
+      "file": "models/hanging_industrial_lamp.glb",
+      "size": [0.55, 1.36, 0.55],
+      "min": [-0.27, -1.34, -0.27],
+      "up": "+Y",
+      "note": "enamel industrial pendant lamp on a chain (emissive map); origin at the ceiling mount, hangs down 1.34 m; warehouses, station"
+    },
+    "tool_cart": {
+      "file": "models/tool_cart.glb",
+      "size": [1.27, 0.96, 0.75],
+      "min": [-0.66, 0, -0.38],
+      "up": "+Y",
+      "note": "green metal trolley cart with drawers; hospital, workshop"
+    },
+    "metal_trash_can": {
+      "file": "models/metal_trash_can.glb",
+      "size": [0.77, 0.91, 0.55],
+      "min": [-0.45, 0, -0.27],
+      "up": "+Y",
+      "note": "rusty galvanised trash can; lid (metal_trash_can_rust_lid) lies leaning beside it; sidewalks, alleys",
+      "parts": ["metal_trash_can_rust", "metal_trash_can_rust_handle_left", "metal_trash_can_rust_handle_right", "metal_trash_can_rust_lid"]
+    },
+    "trashbag": {
+      "file": "models/trashbag.glb",
+      "size": [0.53, 0.57, 0.46],
+      "min": [-0.26, 0, -0.24],
+      "up": "+Y",
+      "note": "black garbage bag; sidewalks, alleys"
+    },
+    "water_manhole_cover": {
+      "file": "models/water_manhole_cover.glb",
+      "size": [0.69, 0.07, 0.69],
+      "min": [-0.35, -0.03, -0.35],
+      "up": "+Y",
+      "note": "cast-iron \"WATER\" manhole cover (node water_manhole_cover, liftable) + frame; 7 cm thick, y=0 ~ road surface; roads",
+      "parts": ["water_manhole_cover_frame", "water_manhole_cover"]
+    },
+    "utility_box_01": {
+      "file": "models/utility_box_01.glb",
+      "size": [0.52, 1.12, 0.43],
+      "min": [-0.26, 0, -0.21],
+      "up": "+Y",
+      "note": "grey electrical utility cabinet with DANGER sticker; sidewalks"
+    },
+    "concrete_road_barrier": {
+      "file": "models/concrete_road_barrier.glb",
+      "size": [1.54, 0.83, 0.64],
+      "min": [-0.77, -0.01, -0.29],
+      "up": "+Y",
+      "note": "concrete road barrier block with black/white stripes; roadblocks, closed streets"
+    },
+    "rollershutter_door": {
+      "file": "models/rollershutter_door.glb",
+      "size": [1.08, 2.4, 0.3],
+      "min": [-0.54, 0, 0],
+      "up": "+Y",
+      "note": "closed roller shutter for a shop door (1.1 x 2.4 m incl. housing; wall plane z=0, faces +Z); Main Street shop fronts"
+    },
+    "rollershutter_window_01": {
+      "file": "models/rollershutter_window_01.glb",
+      "size": [2.1, 1.85, 0.3],
+      "min": [-1.05, 0, 0],
+      "up": "+Y",
+      "note": "closed roller shutter for a shop window (2.1 x 1.85 m incl. housing; wall plane z=0, faces +Z); Main Street shop fronts"
+    },
+    "modular_fire_escape": {
+      "file": "models/modular_fire_escape.glb",
+      "size": [6.66, 9.76, 1.42],
+      "min": [-2.4, -3.65, -0.78],
+      "up": "+Y",
+      "note": "black steel fire escape kit: platform_bottom/middle, platform_railing, railing_bottom/middle, stairs, ladder_bottom; pieces are stacked as an assembled example (~9.8 m); brick facades",
+      "parts": ["modular_fire_escape_railing_middle", "modular_fire_escape_platform_railing", "modular_fire_escape_platform_middle", "modular_fire_escape_stairs", "modular_fire_escape_ladder_bottom", "modular_fire_escape_railing_bottom", "modular_fire_escape_platform_bottom"]
+    },
+    "security_light": {
+      "file": "models/security_light.glb",
+      "size": [0.32, 0.53, 0.42],
+      "min": [-0.16, -0.36, -0.03],
+      "up": "+Y",
+      "note": "wall-mounted dome yard / security light (bulb material warm-emissive); wall plane ~z=0, projects +Z; warehouses, parking lots"
+    },
+    "mounted_fluorescent_lights": {
+      "file": "models/mounted_fluorescent_lights.glb",
+      "size": [0.91, 0.04, 0.65],
+      "min": [-0.46, -0.04, -0.33],
+      "up": "+Y",
+      "note": "ceiling fluorescent tube fixtures (0.91 m), 7 variants = nodes mounted_fluorescent_lights_a.._g laid 0.1 m apart along Z (reset position when instancing); ceiling at y=0, tube material emissive; office (backrooms), hospital, station",
+      "parts": ["mounted_fluorescent_lights_a", "mounted_fluorescent_lights_f", "mounted_fluorescent_lights_d", "mounted_fluorescent_lights_b", "mounted_fluorescent_lights_g", "mounted_fluorescent_lights_e", "mounted_fluorescent_lights_c"]
+    },
+    "caged_hanging_light": {
+      "file": "models/caged_hanging_light.glb",
+      "size": [1.16, 0.75, 0.31],
+      "min": [-0.58, -0.75, -0.16],
+      "up": "+Y",
+      "note": "caged fluorescent fixture hanging 0.75 m on two wires (emissive map), ceiling at y=0; subway, industrial rooms"
+    },
+    "metal_office_desk": {
+      "file": "models/metal_office_desk.glb",
+      "size": [2, 0.79, 0.95],
+      "min": [-1, 0, -0.47],
+      "up": "+Y",
+      "note": "grey steel office desk; drawers (_drawer_01.._06) and trays are separate nodes (slide along Z); office / backrooms",
+      "parts": ["metal_office_desk_drawer_06", "metal_office_desk_tray_01", "metal_office_desk", "metal_office_desk_drawer_04", "metal_office_desk_drawer_03", "metal_office_desk_drawer_05", "metal_office_desk_drawer_02", "metal_office_desk_drawer_01", "metal_office_desk_tray_02"]
+    },
+    "worn_metal_rack": {
+      "file": "models/worn_metal_rack.glb",
+      "size": [0.92, 1.9, 0.6],
+      "min": [-0.46, 0, -0.3],
+      "up": "+Y",
+      "note": "worn metal shelving rack; shops, storage, hospital supply room"
+    },
+    "WetFloorSign_01": {
+      "file": "models/WetFloorSign_01.glb",
+      "size": [0.3, 0.63, 0.36],
+      "min": [-0.15, 0, -0.19],
+      "up": "+Y",
+      "note": "yellow \"CAUTION WET FLOOR\" A-frame sign; hospital, station, office"
+    },
+    "power_box_01": {
+      "file": "models/power_box_01.glb",
+      "size": [0.46, 0.5, 0.4],
+      "min": [-0.29, -0.25, -0.05],
+      "up": "+Y",
+      "note": "wall fuse / breaker box (back on the wall plane, faces +Z); door node power_box_01_door is open ~90 deg, its origin is on the hinge (x=-0.16) - rotate around Y; power puzzles, basements",
+      "parts": ["power_box_01_door", "power_box_01_box"]
+    },
+    "Television_01": {
+      "file": "models/Television_01.glb",
+      "size": [0.6, 0.46, 0.47],
+      "min": [-0.3, 0, -0.26],
+      "up": "+Y",
+      "note": "old CRT television; apartments, waiting rooms (screen could take a static video texture)"
+    },
+    "CashRegister_01": {
+      "file": "models/CashRegister_01.glb",
+      "size": [0.6, 0.62, 0.62],
+      "min": [-0.23, 0, -0.17],
+      "up": "+Y",
+      "note": "vintage mechanical cash register; drawer node CashRegister_011_drawer is pulled out ~0.19 m along +Z (slide back to close); shop counters",
+      "parts": ["CashRegister_01_body", "CashRegister_011_drawer"]
+    },
+    "wall_clock": {
+      "file": "models/wall_clock.glb",
+      "size": [0.32, 0.32, 0.05],
+      "min": [-0.16, -0.16, 0],
+      "up": "+Y",
+      "note": "round office wall clock (back at z=0, faces +Z); hands are separate nodes wall_clock_hours_hand / _minute_hand / _second_hand pivoting at the origin - rotate around Z; office, hospital, station",
+      "parts": ["wall_clock_minute_hand", "wall_clock_second_hand", "wall_clock_hours_hand", "wall_clock"]
+    },
+    "vintage_crutches_01": {
+      "file": "models/vintage_crutches_01.glb",
+      "size": [0.38, 1.61, 0.2],
+      "min": [-0.13, 0, -0.16],
+      "up": "+Y",
+      "note": "pair of old wooden crutches; hospital"
+    },
+    "SchoolChair_01": {
+      "file": "models/SchoolChair_01.glb",
+      "size": [0.57, 1.01, 0.68],
+      "min": [-0.28, 0, -0.34],
+      "up": "+Y",
+      "note": "plastic-shell steel chair; hospital waiting room, office"
+    },
+    "security_camera_01": {
+      "file": "models/security_camera_01.glb",
+      "size": [0.17, 0.29, 0.55],
+      "min": [-0.08, -0.02, -0.3],
+      "up": "+Y",
+      "note": "wall-mounted CCTV camera; station, shops, hospital"
+    },
+    "large_iron_gate": {
+      "file": "models/large_iron_gate.glb",
+      "size": [2.95, 2.93, 0.1],
+      "min": [-1.48, -0.01, -0.04],
+      "up": "+Y",
+      "note": "double wrought-iron gate ~3 x 2.9 m (closed, in the XY plane); door nodes large_iron_gate_left_door / _right_door have their origin on the hinge line (x = -/+1.43) - rotate around Y to open; also _bolt and large_iron_gate (top bar); cemetery / park entrance",
+      "parts": ["large_iron_gate_right_door", "large_iron_gate_bolt", "large_iron_gate_left_door", "large_iron_gate"]
+    },
+    "gothic_statue": {
+      "file": "models/gothic_statue.glb",
+      "size": [1.48, 1.74, 1.56],
+      "min": [-0.74, -0.02, -0.78],
+      "up": "+Y",
+      "note": "weathered stone statue of a robed figure on a base (re-centred in X/Z); cemetery centrepiece"
+    },
+    "tree_stump_01": {
+      "file": "models/tree_stump_01.glb",
+      "size": [1.43, 0.57, 1.59],
+      "min": [-0.78, -0.19, -0.76],
+      "up": "+Y",
+      "note": "mossy tree stump with roots; park, cemetery"
+    },
+    "street_rat": {
+      "file": "models/street_rat.glb",
+      "size": [0.03, 0.03, 0.15],
+      "min": [-0.02, 0, -0.11],
+      "up": "+Y",
+      "note": "rat (static mesh, no rig); authored small (15 cm nose-to-tail) - scale x2-2.5 for an adult rat; alleys, subway, ambient scares"
+    }
+  },
+  "license": "CC0 (Poly Haven) - see CREDITS.md",
+  "notes": {
+    "normals": "OpenGL convention (+Y), matches three.js default",
+    "models": "glTF Y-up, metres; EXT_meshopt_compression + KHR_mesh_quantization -> GLTFLoader.setMeshoptDecoder(MeshoptDecoder); textures are WebP (EXT_texture_webp)",
+    "min": "bounding-box minimum corner in model space (y ~ 0 means origin at the base)"
+  }
+}

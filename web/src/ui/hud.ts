@@ -32,7 +32,23 @@ export class Hud {
   private txEl = $('txfeed');
   private recBlink = false;
 
+  showControls(ms: number) {
+    const el = $('controls');
+    el.classList.remove('faded');
+    clearTimeout(this.controlsTimer);
+    this.controlsTimer = window.setTimeout(() => el.classList.add('faded'), ms);
+  }
+
+  private controlsTimer = 0;
+
   show(mode: Mode) {
+    addEventListener('keydown', (e) => {
+      if (e.code === 'KeyH') {
+        const el = $('controls');
+        if (el.classList.contains('faded')) this.showControls(15000);
+        else el.classList.add('faded');
+      }
+    });
     this.root.classList.remove('hidden');
     this.root.dataset.mode = mode;
     $('watchpanel').classList.toggle('hidden', mode !== 'watch');

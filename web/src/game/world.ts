@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CELL_CM, GRID } from '../config';
 import map from '../map.json';
-import { applyPbr, loadModel } from './assets';
+import { applyPbr, ModelInstances } from './assets';
 import { carpet, ceiling, label, roughness, wallpaper } from './textures';
 
 export const CELL = CELL_CM / 100; // 3 m
@@ -21,6 +21,21 @@ export const tileAt = (cx: number, cy: number) => (cx < 0 || cy < 0 || cx >= GRI
 const INDOOR = new Set(['A', 'H', 'S', '0', '1', '2']);
 export const isIndoor = (x: number, z: number) => INDOOR.has(tileAt(Math.floor(x / CELL), Math.floor(z / CELL)));
 export const cellCenter = ([cx, cy]: number[]) => new THREE.Vector3((cx + 0.5) * CELL, 0, (cy + 0.5) * CELL);
+
+/** yaw (radians, three.js convention) looking down the longest open run from a cell */
+export function openYaw(cell: number[]): number {
+  const [x, y] = cell;
+  let best = 0, bestRun = -1;
+  for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+    let run = 0;
+    while (run < 20 && !isSolidCell(x + dx * (run + 1), y + dy * (run + 1))) run++;
+    if (run > bestRun) {
+      bestRun = run;
+      best = Math.atan2(-dx, -dy);
+    }
+  }
+  return best;
+}
 
 /** which named place a point is in, for the HUD */
 export function placeAt(x: number, z: number): string {
@@ -81,6 +96,19 @@ function floorGeometry(cells: [number, number][], y: number, repeat: number, fac
   return g;
 }
 
+/** a box whose UVs are in metres / repeat on every face, so textures keep their real scale */
+function boxUV(w: number, h: number, d: number, rep: number) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  // face order: +x, -x, +y, -y, +z, -z (4 vertices each)
+  const dims: [number, number][] = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
+    const i = f * 4 + v;
+    uv.setXY(i, (uv.getX(i) * dims[f][0]) / rep, (uv.getY(i) * dims[f][1]) / rep);
+  }
+  return g;
+}
+
 function std(color: number, rough = 0.9, metal = 0) {
   return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 }
@@ -108,6 +136,8 @@ export class World {
   private flares: { mesh: THREE.Mesh; source: Source }[] = [];
   private flashes: { light: THREE.PointLight; t: number }[] = [];
   private propObjs: THREE.Object3D[] = [];
+  private lampMatrices: THREE.Matrix4[] = [];
+  private standInLamps: THREE.Object3D[] = [];
   onThunder?: () => void;
 
   constructor(private scene: THREE.Scene) {
@@ -148,6 +178,7 @@ export class World {
     const park = std(0x1f2416, 1);
     void applyPbr(park, 'ground', { tint: 0x8a8a7a });
     const archive = new THREE.MeshStandardMaterial({ map: carpet(), roughness: 1 });
+    void applyPbr(archive, 'carpet', { tint: 0xb8a070 });
     const hospital = std(0xb9c2b4, 0.45);
     void applyPbr(hospital, 'tiles', { tint: 0xc8d4c6, roughnessScale: 0.5 });
     const station = std(0x5b5a55, 0.6);
@@ -155,10 +186,10 @@ export class World {
     const shop = std(0x6b5f4f, 0.6);
     void applyPbr(shop, 'wood', { tint: 0xaaa090, roughnessScale: 0.7 });
     const mats: Record<string, [THREE.Material, number, number]> = {
-      road: [asphalt, 4, 0],
-      walk: [walk, 2, 0.12],
-      park: [park, 4, 0.02],
-      A: [archive, 3, 0.01],
+      road: [asphalt, 3, 0],
+      walk: [walk, 1.8, 0.12],
+      park: [park, 2.35, 0.02],
+      A: [archive, 1.2, 0.01],
       H: [hospital, 2, 0.01],
       S: [station, 2, 0.01],
       '0': [shop, 2, 0.01],
@@ -243,12 +274,13 @@ export class World {
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key)!.push(m);
     }
-    const unit = new THREE.BoxGeometry(CELL, 1, CELL);
-    // world-space-ish UVs on a unit-height box: scale V by height in the shader-free way (good enough at night)
     for (const [key, ms] of buckets) {
       const [kind, side] = key.split(':');
       const k = kinds[kind];
-      const mesh = new THREE.InstancedMesh(unit, side === 'o' ? k.outer : k.mat, ms.length);
+      const h = side === 'o' ? k.outerH : k.height;
+      const geo = boxUV(CELL, h, CELL, 2);
+      ms.forEach((m) => m.scale(new THREE.Vector3(1, 1 / h, 1)));
+      const mesh = new THREE.InstancedMesh(geo, side === 'o' ? k.outer : k.mat, ms.length);
       ms.forEach((m, i) => mesh.setMatrixAt(i, m));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -291,15 +323,13 @@ export class World {
     void applyPbr(brick, 'brick', { tint: 0x8a7a72 });
     const concrete = std(0x55534e, 0.92);
     void applyPbr(concrete, 'concrete', { tint: 0x8a867c });
-    const unit = new THREE.BoxGeometry(1, 1, 1);
     const winDark: THREE.Matrix4[] = [];
     const winLit: THREE.Matrix4[] = [];
     let s = 4242;
     const r = () => ((s = (s * 48271) % 2147483647) / 2147483647);
     for (const b of map.buildings as { x: number; y: number; w: number; h: number; floors: number; style: string; litChance: number }[]) {
       const W = b.w * CELL, D = b.h * CELL, H = b.floors * 3.3 + 1;
-      const mesh = new THREE.Mesh(unit, b.style === 'brick' ? brick : concrete);
-      mesh.scale.set(W, H, D);
+      const mesh = new THREE.Mesh(boxUV(W, H, D, b.style === 'brick' ? 1.9 : 2), b.style === 'brick' ? brick : concrete);
       mesh.position.set(b.x * CELL + W / 2, H / 2, b.y * CELL + D / 2);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -345,18 +375,31 @@ export class World {
   }
 
   private buildLights() {
-    const lamps = map.lamps as { cell: number[]; state: 'on' | 'flicker' | 'dead' }[];
-    const poleGeo = new THREE.CylinderGeometry(0.07, 0.1, 6, 8);
-    poleGeo.translate(0, 3, 0);
-    const armGeo = new THREE.BoxGeometry(0.08, 0.08, 1.4);
-    const headGeo = new THREE.BoxGeometry(0.5, 0.14, 0.8);
-    const coneGeo = new THREE.ConeGeometry(2.6, 5.6, 24, 1, true);
-    coneGeo.translate(0, -2.8, 0);
+    const lamps = [...(map.lamps as { cell: number[]; state: 'on' | 'flicker' | 'dead' }[])];
+    for (let x = 36; x <= 55; x += 5) lamps.push({ cell: [x, 51], state: x % 2 ? 'flicker' : 'on' });
+    for (let y = 44; y <= 60; y += 5) lamps.push({ cell: [44, y], state: y === 54 ? 'dead' : 'on' });
+    const poleGeo = new THREE.CylinderGeometry(0.07, 0.1, 3.9, 8);
+    poleGeo.translate(0, 1.95, 0);
+    const armGeo = new THREE.BoxGeometry(0.06, 0.06, 0.3);
+    const headGeo = new THREE.BoxGeometry(0.16, 0.22, 0.16);
+    const coneGeo = new THREE.ConeGeometry(2.1, 3.5, 24, 6, true);
+    coneGeo.translate(0, -1.75, 0);
+    {
+      // light shaft fades from the lamp down to nothing at the ground
+      const pos = coneGeo.attributes.position;
+      const cols = new Float32Array(pos.count * 3);
+      for (let v = 0; v < pos.count; v++) {
+        const t = Math.min(1, -pos.getY(v) / 3.5);
+        const k = Math.pow(1 - t, 2.2) * 0.9 + 0.02;
+        cols.set([k, k, k], v * 3);
+      }
+      coneGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    }
     const poleMat = std(0x1c1d1f, 0.5, 0.7);
     const poles = new THREE.InstancedMesh(poleGeo, poleMat, lamps.length);
     const arms = new THREE.InstancedMesh(armGeo, poleMat, lamps.length);
     const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), lamps.length);
-    const cones = new THREE.InstancedMesh(coneGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }), lamps.length);
+    const cones = new THREE.InstancedMesh(coneGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false, fog: true }), lamps.length);
     heads.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(lamps.length * 3), 3);
     cones.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(lamps.length * 3), 3);
     poles.castShadow = true;
@@ -367,21 +410,23 @@ export class World {
       for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) if (isSolidCell(cx + dx, cy + dy)) { ox = dx * 1.2; oz = dy * 1.2; break; }
       const c = cellCenter([cx, cy]);
       const base = new THREE.Vector3(c.x + ox, 0, c.z + oz);
+      this.lampMatrices.push(new THREE.Matrix4().compose(base, new THREE.Quaternion().setFromAxisAngle(UP, Math.random() * 6.28), new THREE.Vector3(1, 1, 1)));
       const dir = new THREE.Vector3(-ox, 0, -oz).normalize();
       if (dir.lengthSq() === 0) dir.set(1, 0, 0);
       const yaw = Math.atan2(dir.x, dir.z);
       const q = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
       poles.setMatrixAt(i, new THREE.Matrix4().compose(base, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)));
-      arms.setMatrixAt(i, new THREE.Matrix4().compose(base.clone().addScaledVector(dir, 0.65).setY(5.95), q, new THREE.Vector3(1, 1, 1)));
-      const headPos = base.clone().addScaledVector(dir, 1.3).setY(5.86);
+      arms.setMatrixAt(i, new THREE.Matrix4().compose(base.clone().setY(3.75), q, new THREE.Vector3(1, 1, 1)));
+      const headPos = base.clone().setY(3.55);
       heads.setMatrixAt(i, new THREE.Matrix4().compose(headPos, q, new THREE.Vector3(1, 1, 1)));
       cones.setMatrixAt(i, new THREE.Matrix4().compose(headPos, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)));
       this.addSource({
-        pos: headPos.clone().setY(5.4), color: sodium.clone(), intensity: 22, distance: 16, mode: lamp.state, outdoor: true,
+        pos: headPos.clone().setY(3.3), color: sodium.clone(), intensity: 18, distance: 14, mode: lamp.state, outdoor: true,
         emitter: { mesh: heads, index: i, base: new THREE.Color(0xffb060).multiplyScalar(3) }, cone: { mesh: cones, index: i },
       });
     });
     this.group.add(poles, arms, heads, cones);
+    this.standInLamps.push(poles, arms);
 
     // indoor fluorescent panels, one instanced emitter
     const cells: { x: number; y: number; t: string }[] = [];
@@ -467,6 +512,8 @@ export class World {
     });
   }
 
+  private instances: ModelInstances[] = [];
+
   private async buildProps() {
     const stone = std(0x55554f, 0.95);
     void applyPbr(stone, 'concrete', { tint: 0x8a8a84 });
@@ -482,45 +529,127 @@ export class World {
     hs.castShadow = true;
     this.group.add(hs);
 
+    let seed = 777;
+    const rnd = () => ((seed = (seed * 48271) % 2147483647) / 2147483647);
+    const place: Record<string, THREE.Matrix4[]> = {};
+    const put = (id: string, x: number, z: number, yaw: number, scale = 1, y = 0) => {
+      (place[id] ??= []).push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(UP, yaw), new THREE.Vector3(scale, scale, scale)));
+    };
+    /** a point hugging the nearest wall of an open cell, facing out of it */
+    const nearWall = (cx: number, cy: number, inset = 0.45): [number, number, number] | null => {
+      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+        if (!isSolidCell(cx + dx, cy + dy)) continue;
+        const c = cellCenter([cx, cy]);
+        return [c.x + dx * (CELL / 2 - inset), c.z + dy * (CELL / 2 - inset), Math.atan2(-dx, -dy)];
+      }
+      return null;
+    };
+
+    // the generator's props
     const modelFor: Record<string, string[]> = {
-      car: ['covered_car'],
-      hydrant: ['fire_hydrant'],
-      barrel: ['barrel_03', 'wooden_barrels_01'],
-      crate: ['wooden_crate_01', 'plastic_crate_01'],
-      boxes: ['cardboard_box_01'],
-      cone: ['traffic_cone', 'plastic_crate_02'],
-      bed: ['old_bed_frame'],
-      wheelchair: ['wheelchair_01'],
+      car: ['covered_car'], hydrant: ['fire_hydrant'], barrel: ['barrel_03'], crate: ['wooden_crate_01', 'plastic_crate_01'],
+      boxes: ['cardboard_box_01'], cone: ['concrete_road_barrier'], bed: ['old_bed_frame'], wheelchair: ['wheelchair_01'],
     };
     for (const p of props) {
       if (p.kind === 'headstone') continue;
-      let model: THREE.Group | null = null;
-      for (const id of modelFor[p.kind] ?? []) {
-        model = await loadModel(id);
-        if (model) break;
-      }
+      const ids = modelFor[p.kind];
+      if (!ids) continue;
       const c = cellCenter(p.cell);
-      const jitter = new THREE.Vector3((Math.random() - 0.5) * 1.2, 0, (Math.random() - 0.5) * 1.2);
-      if (model) {
-        const inst = model.clone();
-        inst.position.copy(c).add(jitter);
-        inst.rotation.y = p.rot;
-        this.group.add(inst);
-        this.propObjs.push(inst);
-      } else if (p.kind === 'car') {
-        const car = new THREE.Group();
-        const paint = std([0x1e2a33, 0x3a2422, 0x2e2e2a, 0x1c2a22][Math.floor(Math.random() * 4)], 0.25, 0.6);
-        const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.7, 4.3), paint);
-        body.position.y = 0.6;
-        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 2.2), std(0x0a0c0e, 0.05, 0.9));
-        cab.position.set(0, 1.2, -0.2);
-        body.castShadow = cab.castShadow = true;
-        car.add(body, cab);
-        car.position.copy(c).add(jitter);
-        car.rotation.y = p.rot;
-        this.group.add(car);
-        this.propObjs.push(car);
+      const id = ids[Math.floor(rnd() * ids.length)];
+      if (p.kind === 'car' || p.kind === 'bed' || p.kind === 'wheelchair') put(id, c.x + (rnd() - 0.5) * 0.8, c.z + (rnd() - 0.5) * 0.8, p.rot);
+      else {
+        const w = nearWall(p.cell[0], p.cell[1], 0.5);
+        if (w) put(id, w[0], w[1], w[2] + (rnd() - 0.5) * 0.6);
       }
+    }
+
+    // dressing the town
+    for (let y = 1; y < GRID - 1; y++) for (let x = 1; x < GRID - 1; x++) {
+      const t = rows[y][x];
+      const c = cellCenter([x, y]);
+      const h = (x * 73856093) ^ (y * 19349663);
+      const roll = ((h >>> 0) % 1000) / 1000;
+      if (t === '.' && roll < 0.025) put('water_manhole_cover', c.x + (rnd() - 0.5), c.z + (rnd() - 0.5), rnd() * 6.28, 1, 0.005);
+      if (t === ',' || t === 'a') {
+        const w = nearWall(x, y, 0.45);
+        if (w && roll < 0.05) put('metal_trash_can', w[0], w[1], w[2]);
+        else if (w && roll < 0.11) put('trashbag', w[0] + (rnd() - 0.5), w[1] + (rnd() - 0.5), rnd() * 6.28, 1 + rnd() * 0.3);
+        else if (w && roll < 0.13) put('utility_box_01', w[0], w[1], w[2]);
+      }
+      if (t === 'A') {
+        const w = nearWall(x, y, 0.55);
+        if (w && roll < 0.05) put('metal_office_desk', w[0], w[1], w[2]);
+        else if (w && roll < 0.08) put('worn_metal_rack', w[0], w[1], w[2]);
+        else if (roll < 0.1) put('SchoolChair_01', c.x + (rnd() - 0.5), c.z + (rnd() - 0.5), rnd() * 6.28);
+        else if (w && roll < 0.11) put('Television_01', w[0], w[1], w[2]);
+      }
+      if (t === 'H') {
+        const w = nearWall(x, y, 0.4);
+        if (roll < 0.03) put('WetFloorSign_01', c.x + (rnd() - 0.5), c.z + (rnd() - 0.5), rnd() * 6.28);
+        else if (w && roll < 0.05) put('vintage_crutches_01', w[0], w[1], w[2] + 0.3);
+        else if (w && roll < 0.07) put('tool_cart', w[0], w[1], w[2]);
+      }
+      if (t === 'S') {
+        const w = nearWall(x, y, 0.5);
+        if (w && roll < 0.05) put('painted_wooden_bench', w[0], w[1], w[2]);
+        else if (w && roll < 0.08) put('metal_trash_can', w[0], w[1], w[2]);
+        else if (roll < 0.1) put('concrete_road_barrier', c.x, c.z, Math.floor(rnd() * 4) * 1.57);
+      }
+      if ((t === 'p' || t === 'T') && roll < 0.04 && t === 'p') put('tree_stump_01', c.x + (rnd() - 0.5), c.z + (rnd() - 0.5), rnd() * 6.28, 0.8 + rnd() * 0.4);
+      if ((t === '0' || t === '2') && roll < 0.25) {
+        const w = nearWall(x, y, 0.4);
+        if (w) put('worn_metal_rack', w[0], w[1], w[2]);
+      }
+    }
+    // a cash register on each shop counter, a camera watching every door
+    for (const sh of map.shops) {
+      const c = cellCenter(sh.counter);
+      put('CashRegister_01', c.x, c.z, 0, 1, 0.9);
+      put('metal_office_desk', c.x, c.z, 0, 0.9);
+    }
+    for (const d of [...map.shops.map((s) => s.door), ...map.landmarks.map((l) => l.door)]) {
+      const [cx, cy] = d;
+      for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+        const tt = tileAt(cx + dx, cy + dy);
+        if (tt !== '.' && tt !== ',' && tt !== 'a') continue;
+        const c = cellCenter(d);
+        put('security_camera_01', c.x + dx * 1.45 + dy * 1.2, c.z + dy * 1.45 + dx * 1.2, Math.atan2(dx, dy), 1.4, 3.3);
+        break;
+      }
+    }
+    // the park: a statue at the crossing of the paths, an iron gate at the way in
+    put('gothic_statue', 44.5 * CELL + 1.5, 51.5 * CELL, -Math.PI / 2, 1.3);
+    put('large_iron_gate', 39.5 * CELL + 1.5, 42.5 * CELL, 0, 1);
+    for (let k = 0; k < 6; k++) put('painted_wooden_bench', (36 + k * 3.5) * CELL, 51.5 * CELL - 1.8, 0);
+
+    const budget: Record<string, number> = { covered_car: 10, water_manhole_cover: 12, trashbag: 20, metal_trash_can: 14, SchoolChair_01: 16, worn_metal_rack: 16 };
+    for (const [id, ms] of Object.entries(place)) {
+      const inst = await ModelInstances.create(id, ms, budget[id] ?? 12, id !== 'water_manhole_cover' && id !== 'trashbag');
+      if (inst) {
+        this.group.add(inst.group);
+        this.instances.push(inst);
+      } else if (id === 'covered_car') {
+        // fallback cars if the model is missing
+        for (const m of ms) {
+          const car = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 4.3), std(0x1e2a33, 0.25, 0.6));
+          car.applyMatrix4(m);
+          car.position.y = 0.6;
+          this.group.add(car);
+        }
+      }
+    }
+
+    // real street lamps replace the stand-in poles once the model is here
+    const lamps = await ModelInstances.create('street_lamp_01', this.lampMatrices, 18);
+    if (lamps) {
+      // the model's bulbs always glow; per-lamp emitters (dead / flickering) show through the glass instead
+      lamps.group.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (m && /bulb/i.test(m.name)) m.emissiveIntensity = 0;
+      });
+      this.group.add(lamps.group);
+      this.instances.push(lamps);
+      for (const m of this.standInLamps) m.visible = false;
     }
   }
 
@@ -665,7 +794,7 @@ export class World {
           touched.add(l.emitter.mesh);
         }
         if (l.cone) {
-          col.setRGB(0.06, 0.04, 0.025).multiplyScalar(level);
+          col.setRGB(0.05, 0.032, 0.018).multiplyScalar(level);
           l.cone.mesh.setColorAt(l.cone.index, col);
           touched.add(l.cone.mesh);
         }
@@ -738,6 +867,7 @@ export class World {
     this.lightning.intensity = since < 450 ? (Math.sin(since / 30) > 0 ? 2.4 : 0.6) * (1 - since / 450) * (indoors ? 0.15 : 1) : 0;
 
     if (this.exitOpen) this.exitDoor.position.y = Math.min(this.exitDoor.position.y + dt * 0.8, 4.5);
+    for (const inst of this.instances) inst.update(now, viewer);
     // cheap distance culling for props (fog hides them anyway)
     for (const o of this.propObjs) o.visible = Math.abs(o.position.x - viewer.x) < 45 && Math.abs(o.position.z - viewer.z) < 45;
     this.flares = this.flares.filter((f) => {

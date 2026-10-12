@@ -8,7 +8,7 @@ import { Figure, SKINS, SUITS } from './figures';
 import { Fx } from './fx';
 import { Player } from './player';
 import { Psych } from './psych';
-import { World } from './world';
+import { World, openYaw, CELL } from './world';
 import { Town } from './town';
 import { loadEnvironment } from './assets';
 
@@ -119,6 +119,15 @@ export class Game {
     requestAnimationFrame(this.loop);
   }
 
+  /** explore Halden with no night running (dev tool + attract mode) */
+  roaming = false;
+  roam(cell: number[] = [31, 31]) {
+    this.roaming = true;
+    this.hud.show('play');
+    this.player.enabled = true;
+    this.player.teleport((cell[0] + 0.5) * CELL, (cell[1] + 0.5) * CELL, openYaw(cell));
+  }
+
   // ------------------------------------------------------------------ entering
   async enter(night: NightState, mode: Mode, soul: number) {
     this.night = night;
@@ -133,7 +142,9 @@ export class Game {
     this.fx.setCamera(mode === 'play' ? this.player.camera : this.watchCam);
     if (mode === 'watch') this.watchCam.add(this.audio.listener);
     const spawn = unpack(spawnOf(Math.max(soul, 0)));
-    this.player.teleport(cmToM(spawn.x), cmToM(spawn.y));
+    const sx = cmToM(spawn.x), sz = cmToM(spawn.y);
+    this.player.teleport(sx, sz, openYaw([Math.floor(sx / CELL), Math.floor(sz / CELL)]));
+    this.hud.showControls(25000);
     this.player.wear(SUITS[Math.max(soul, 0) % 8], SKINS[Math.max(soul, 0) % 8]);
     this.started = true;
   }
@@ -150,7 +161,11 @@ export class Game {
       void n.poll().then(() => this.afterPoll(now)).catch(() => undefined);
     }
     if (n && this.started) this.step(now, dt, n);
-    else this.idleCamera(now);
+    else if (this.roaming) {
+      this.player.update(dt);
+      this.town.update(now, dt);
+      this.psych.update(now, dt, 99, false, true);
+    } else this.idleCamera(now);
     this.world.update(now, dt, this.mode === 'watch' ? this.watchCam.position : this.player.yawObj.position, 1 - this.psych.sanity);
     this.fx.update(now, dt);
     this.fx.render(dt);
@@ -334,10 +349,21 @@ export class Game {
     if (phase === 'over' && !this.over) this.finish(n);
   }
 
+  private syncSentFor = 0;
+
   private afterPoll(now: number) {
     const n = this.night;
     if (!n || !n.header || !n.header.startBlock) return;
     const est = n.estBlock(now);
+    // keeper: materialize a due shift so nobody's move has to pay for it
+    const due = n.header.nextShift;
+    if (due && n.chainBlock >= due + 1 && this.syncSentFor !== due && !n.header.endBlock && this.mode === 'play') {
+      this.syncSentFor = due;
+      const delay = Math.max(0, this.mySoul) * 700;
+      setTimeout(() => {
+        if (n.header && n.header.nextShift === due) void this.wallet.call('sync', [n.id]);
+      }, delay);
+    }
     // turned souls
     n.souls.forEach((s, i) => {
       if (s.hollowSince && s.hollowSince > n.header!.startBlock && !this.turnedSeen.has(i)) {
@@ -422,7 +448,9 @@ export class Game {
     this.player.shake = 1.4;
     this.psych.hit(0.12);
     const rp = n.renderPosition(body, n.indexAtBlock(est));
-    this.player.teleport(cmToM(rp.x), cmToM(rp.y), Math.random() * Math.PI * 2);
+    // wake up facing somewhere you didn't choose
+    this.player.teleport(cmToM(rp.x), cmToM(rp.y), openYaw([Math.floor(cmToM(rp.x) / CELL), Math.floor(cmToM(rp.y) / CELL)]) + (Math.random() - 0.5) * 1.2);
+    this.player.pitchObj.rotation.x = 0;
     this.player.wear(SUITS[body % 8], SKINS[body % 8]);
     this.hud.scrambleCam(2600);
     this.hud.feed('SIGNAL REACQUIRED');

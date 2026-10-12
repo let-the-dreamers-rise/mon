@@ -44,20 +44,20 @@ export class Player {
     this.flashlight.shadow.mapSize.set(1024, 1024);
     this.flashlight.shadow.camera.near = 0.2;
     this.flashlight.shadow.bias = -0.0008;
-    this.flashlight.position.set(0.18, -0.18, 0.1);
-    this.flashlight.target.position.set(0.05, -0.12, -3);
+    this.flashlight.position.set(0.2, -0.19, -0.62); // in front of the hand, at the torch lens
+    this.flashlight.target.position.set(0.05, -0.12, -4);
     this.camera.add(this.flashlight, this.flashlight.target);
 
     // first-person hands: a sleeve and a pale hand holding the torch, with an ID wristband
     this.hands = new THREE.Group();
     this.sleeveMat = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, roughness: 0.9 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xc9b39a, roughness: 0.65 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0x141312, roughness: 0.55 }); // black work glove
     this.bandMat = new THREE.MeshStandardMaterial({ color: 0xe8e2cf, roughness: 0.6 });
     const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.42, 10), this.sleeveMat);
     sleeve.rotation.x = Math.PI / 2.3;
     sleeve.position.set(0.24, -0.3, -0.18);
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 10), skin);
-    hand.scale.set(1, 0.8, 1.3);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.07, 0.11, 2, 2, 2), skin);
+    hand.rotation.x = 0.35;
     hand.position.set(0.22, -0.22, -0.4);
     const band = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.035, 12), this.bandMat);
     band.rotation.x = Math.PI / 2.3;
@@ -83,7 +83,7 @@ export class Player {
   /** dress the hands in the body you currently wear */
   wear(color: THREE.ColorRepresentation, skinTone?: THREE.ColorRepresentation) {
     this.sleeveMat.color.set(color);
-    if (skinTone) (this.hands.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>).material.color.set(skinTone);
+    void skinTone; // gloves hide the skin; the sleeve and the wristband tell you whose body this is
   }
 
   lock() {

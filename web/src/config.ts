@@ -42,21 +42,21 @@ export const NET: Network = IS_LOCAL ? local : testnet;
 
 /** gas limits per call (Monad charges the full limit, so keep them tight) */
 export const GAS = {
-  record: 140_000n,
-  sync: 160_000n,
-  turn: 260_000n,
-  claim: 220_000n,
+  record: 120_000n,
+  sync: 140_000n,
+  turn: 160_000n,
+  claim: 160_000n,
   join: 140_000n,
   create: 120_000n,
   start: 260_000n,
   torment: 160_000n,
   name: 60_000n,
-  buy: 240_000n,
-  use: 160_000n,
+  buy: 170_000n,
+  use: 110_000n,
 } as const;
 
-export const MAX_FEE = 160_000_000_000n; // 160 gwei
-export const PRIORITY_FEE = 2_000_000_000n; // 2 gwei
+export const MAX_FEE = 130_000_000_000n; // 130 gwei (Monad testnet base fee floor is 100)
+export const PRIORITY_FEE = 1_000_000_000n; // 1 gwei
 export const TORMENT_FEE = 10_000_000_000_000_000n; // 0.01 MON
 
 // ---------------------------------------------------------------- contract constants (mirrors Hollow.sol)

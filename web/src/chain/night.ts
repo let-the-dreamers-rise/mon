@@ -617,7 +617,7 @@ export class Pilot {
     // only samples whose block the chain has reached can be accepted
     const ready = this.pending.filter((p) => n.blockOfIndex(p.index) <= n.chainBlock + 1);
     if (!ready.length) return;
-    if (!force && !urgent && ready.length < 2 && now - this.lastSend < 900) return;
+    if (!force && !urgent && ready.length < 4 && now - this.lastSend < 2200) return;
     const nS = n.bodies[body]?.nSamples ?? 0;
     const batch = ready.filter((p) => p.body === body && p.index >= nS).slice(0, 8);
     // keep only a contiguous-in-time run inside one epoch
@@ -642,6 +642,10 @@ export class Pilot {
     this.lastSend = now;
     this.sentSamples += consecutive.length;
     this.sendTimes.set(consecutive[consecutive.length - 1].index, now);
-    void this.wallet.call('record', [n.id, body, first, packed, consecutive.length, voice]);
+    // Monad charges the gas limit, so size it to what this call will actually do
+    const newSlot = consecutive.some((p) => p.index % 8 === 0) || (consecutive[0].index >> 3) !== ((n.bodies[body]?.nSamples ?? 0) >> 3);
+    const shiftDue = !!n.header && n.header.nextShift > 0 && n.chainBlock + 1 >= n.header.nextShift;
+    const gas = 78_000n + (newSlot ? 24_000n : 0n) + (shiftDue ? 85_000n : 0n) + (voice ? 6_000n : 0n);
+    void this.wallet.call('record', [n.id, body, first, packed, consecutive.length, voice], { gas });
   }
 }

@@ -115,3 +115,55 @@ export async function hasModel(id: string) {
   const m = await loadManifest();
   return !!m.models?.[id];
 }
+
+/**
+ * Many copies of one model, drawn as InstancedMeshes. Only the `maxVisible` copies nearest the
+ * viewer are drawn (the fog hides the rest), so a town full of props stays cheap.
+ */
+export class ModelInstances {
+  readonly group = new THREE.Group();
+  private parts: { mesh: THREE.InstancedMesh; local: THREE.Matrix4 }[] = [];
+  private positions: THREE.Vector3[];
+  private lastPick = 0;
+  private tmp = new THREE.Matrix4();
+
+  private constructor(private matrices: THREE.Matrix4[], private maxVisible: number) {
+    this.positions = matrices.map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+  }
+
+  static async create(id: string, matrices: THREE.Matrix4[], maxVisible = 24, shadows = true): Promise<ModelInstances | null> {
+    const model = await loadModel(id);
+    if (!model || !matrices.length) return null;
+    const inst = new ModelInstances(matrices, Math.min(maxVisible, matrices.length));
+    model.updateMatrixWorld(true);
+    model.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mesh = new THREE.InstancedMesh(m.geometry, m.material, inst.maxVisible);
+      mesh.castShadow = shadows;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      inst.parts.push({ mesh, local: m.matrixWorld.clone() });
+      inst.group.add(mesh);
+    });
+    return inst;
+  }
+
+  update(now: number, viewer: THREE.Vector3) {
+    if (now - this.lastPick < 350) return;
+    this.lastPick = now;
+    const order = this.positions
+      .map((p, i) => ({ i, d: (p.x - viewer.x) ** 2 + (p.z - viewer.z) ** 2 }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, this.maxVisible);
+    for (const part of this.parts) {
+      order.forEach(({ i }, k) => {
+        this.tmp.multiplyMatrices(this.matrices[i], part.local);
+        part.mesh.setMatrixAt(k, this.tmp);
+      });
+      part.mesh.count = order.length;
+      part.mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+}

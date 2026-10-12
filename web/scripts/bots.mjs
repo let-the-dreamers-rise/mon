@@ -21,7 +21,7 @@ const args = Object.fromEntries(
 const RPC = args.rpc ?? process.env.RPC_URL ?? 'http://127.0.0.1:8545';
 const HOLLOW = args.hollow ?? process.env.HOLLOW ?? '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const COUNT = Number(args.count ?? 5);
-const BATCH = Number(args.batch ?? 3);
+const BATCH = Number(args.batch ?? 5);
 const root = new URL('../../', import.meta.url);
 const abi = JSON.parse(readFileSync(new URL('contracts/out/Hollow.sol/Hollow.json', root))).abi;
 const map = JSON.parse(readFileSync(new URL('tools/map/hollow-map.json', root)));
@@ -50,15 +50,15 @@ const accounts = Array.from({ length: COUNT }, (_, i) => {
 
 // ---------------------------------------------------------------- tx engine
 const nonces = new Map();
-const FEES = { maxFeePerGas: 160_000_000_000n, maxPriorityFeePerGas: 2_000_000_000n };
-const GAS = { record: 140_000n, sync: 160_000n, turn: 260_000n, collectFuse: 220_000n, escape: 220_000n, join: 140_000n, createNight: 120_000n, start: 260_000n, setName: 60_000n };
+const FEES = { maxFeePerGas: 130_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
+const GAS = { record: 120_000n, sync: 140_000n, turn: 160_000n, collectFuse: 160_000n, escape: 160_000n, join: 140_000n, createNight: 120_000n, start: 260_000n, setName: 60_000n, buy: 170_000n, use: 110_000n };
 let sentCount = 0;
 async function send(account, fn, fnArgs, extra = {}) {
   const data = encodeFunctionData({ abi, functionName: fn, args: fnArgs });
   let n = nonces.get(account.address);
   if (n === undefined) n = await client.getTransactionCount({ address: account.address, blockTag: 'pending' });
   nonces.set(account.address, n + 1);
-  const raw = await account.signTransaction({ chainId, type: 'eip1559', to: HOLLOW, data, gas: GAS[fn] ?? 200_000n, nonce: n, value: extra.value ?? 0n, ...FEES });
+  const raw = await account.signTransaction({ chainId, type: 'eip1559', to: HOLLOW, data, gas: extra.gas ?? GAS[fn] ?? 200_000n, nonce: n, value: extra.value ?? 0n, ...FEES });
   try {
     const hash = await client.request({ method: 'eth_sendRawTransaction', params: [raw] });
     sentCount++;
@@ -362,7 +362,9 @@ for (;;) {
       });
       bot.pending = bot.pending.filter((p) => !run.includes(p));
       bot.lastSend = Date.now();
-      void send(bot.acct, 'record', [nightId, bot.body, run[0].index, packed, run.length, voice]);
+      const newSlot = run.some((p) => p.index % 8 === 0) || (run[0].index >> 3) !== (nS >> 3);
+      const shiftDue = chainBlock + 1 >= Number(h.nextShift);
+      void send(bot.acct, 'record', [nightId, bot.body, run[0].index, packed, run.length, voice], { gas: 78_000n + (newSlot ? 24_000n : 0n) + (shiftDue ? 85_000n : 0n) + (voice ? 6_000n : 0n) });
     }
 
     // proofs for my own body: fuses, exit

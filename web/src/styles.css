@@ -97,7 +97,7 @@ h2 { font-family: 'Special Elite', serif; font-size: 42px; letter-spacing: 6px; 
 #wrist.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 #wrist-id.notyou { color: #ffcf6a; }
 #wrist-vitals.lost { color: var(--rec); animation: blink 0.9s infinite; }
-#controls { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px;
+#controls { transition: opacity 1.2s; position: absolute; bottom: 86px; left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px;
   font-size: 15px; color: rgba(242, 236, 214, 0.45); max-width: 80vw; }
 #center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: rgba(0, 0, 0, 0.35); }
 #center-title { font-family: 'Special Elite', serif; font-size: clamp(34px, 6vw, 72px); letter-spacing: 6px; color: #f4ecd0; }
@@ -125,7 +125,7 @@ h2 { font-family: 'Special Elite', serif; font-size: 42px; letter-spacing: 6px; 
 #place { position: absolute; top: 48px; left: 50%; transform: translateX(-50%); font-size: 18px; letter-spacing: 4px; color: var(--dim); }
 #prompt { position: absolute; top: 58%; left: 50%; transform: translateX(-50%); font-size: 24px; letter-spacing: 3px; color: #fff6d0;
   background: rgba(0,0,0,0.5); padding: 4px 12px; border: 1px solid var(--line); }
-#items { position: absolute; bottom: 92px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+#items { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
 #items .slot { min-width: 74px; padding: 4px 6px; border: 1px solid var(--line); background: rgba(0,0,0,0.45); font-size: 16px; text-align: center; opacity: 0.55; }
 #items .slot.has { opacity: 1; }
 #items .slot.sel { border-color: var(--sick); box-shadow: 0 0 10px rgba(184,166,90,0.4); }
@@ -146,3 +146,5 @@ h2 { font-family: 'Special Elite', serif; font-size: 42px; letter-spacing: 6px; 
 #townmap { position: absolute; inset: 0; display: grid; place-content: center; background: rgba(0,0,0,0.6); }
 #townmap canvas { width: min(70vh, 90vw); height: min(70vh, 90vw); filter: sepia(0.5) contrast(1.1); box-shadow: 0 0 40px rgba(0,0,0,0.8); }
 .map-cap { text-align: center; color: var(--dim); font-size: 18px; margin-top: 8px; }
+
+#controls.faded { opacity: 0; }
