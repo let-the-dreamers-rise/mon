@@ -180,10 +180,12 @@ if (args.create && args['start-when']) {
 const bots = [];
 for (let i = 0; i < accounts.length; i++) {
   const s = Number(await read('soulIndexPlus1', [nightId, accounts[i].address])) - 1;
-  if (s >= 0) bots.push({ acct: accounts[i], soul: s, body: -1, epoch: -1, pos: null, next: -1, pending: [], target: null, route: [], lastSend: 0, wander: Math.random() * 1e9, voiceAt: Date.now() + 8000 + Math.random() * 20000 });
+  if (s >= 0) bots.push({ acct: accounts[i], soul: s, body: -1, epoch: -1, pos: null, next: -1, pending: [], target: null, route: [], lastSend: 0, wander: Math.random() * 1e9, voiceAt: Date.now() + 8000 + Math.random() * 20000, shopper: Math.random() < 0.6, bought: false, flareUsed: false });
 }
 
 let header, epochs = [], bodies = [], souls = [], chainBlock = 0, blockAt = Date.now(), msPerBlock = isLocal ? 300 : 300;
+let pockets = [];
+const tileAt = (cx, cy) => (cx < 0 || cy < 0 || cx >= GRID || cy >= GRID ? '#' : map.rows[cy][cx]);
 const samples = []; // per body Map(index -> pos)
 const proven = new Set();
 const claimed = new Set();
@@ -214,6 +216,7 @@ async function poll() {
       epochs.push({ assign, start: Number((w >> 32n) & 0xffffffffffffffffn) });
     }
   }
+  if (Number(header.startBlock)) pockets = (await read('getPockets', [nightId])).map((w) => Array.from({ length: 6 }, (_, i) => Number((w >> BigInt(16 * i)) & 0xffffn)));
   const [addrs, , hollowSince, escapedRel] = await read('getSouls', [nightId]);
   souls = addrs.map((a, i) => ({ addr: a, hollowSince: Number(hollowSince[i]), escapedRel: Number(escapedRel[i]) }));
 }
@@ -288,7 +291,8 @@ for (;;) {
     const hollow = hollowAt(bot.soul, e);
     const idxNow = (e - start()) / SAMPLE;
     if (hollow) {
-      let best = null, bd = Infinity;
+      // hunts like a person would: notices the living nearby, otherwise prowls the town
+      let best = null, bd = 18 * 100 * 18 * 100;
       for (let b = 0; b < Number(h.nSouls); b++) {
         if (b === bot.body || gone(b)) continue;
         const s = ep.assign[b];
@@ -297,14 +301,23 @@ for (;;) {
         const dd = d2(p, bot.pos);
         if (dd < bd) { bd = dd; best = p; }
       }
-      if (best && (!bot.target || d2(bot.target, best) > 250 ** 2 || !bot.route.length)) {
+      const now = Date.now();
+      if (best && now > (bot.replanAt ?? 0)) {
+        bot.replanAt = now + 1800 + Math.random() * 1500;
         bot.target = best;
         bot.route = path(bot.pos, best);
+      } else if (!best && !bot.route.length) {
+        // prowl: a random street or doorway somewhere
+        for (let tries = 0; tries < 20; tries++) {
+          const cx = 2 + Math.floor(Math.random() * 56), cy = 2 + Math.floor(Math.random() * 60);
+          if (!solid(cx, cy)) { bot.route = path(bot.pos, centre([cx, cy])).slice(0, 24); break; }
+        }
       }
     } else if (!bot.route.length) {
       const fuses = Number(h.fuses);
       let goal = null;
-      if (Number(h.exitOpenBlock)) goal = unpack(objective(3));
+      if (bot.shopper && !bot.bought) goal = unpack(objective(4));
+      else if (Number(h.exitOpenBlock)) goal = unpack(objective(3));
       else {
         const open = [0, 1, 2].filter((f) => !(fuses & (1 << f))).map((f) => unpack(objective(f)));
         if (open.length) goal = open.sort((a, b) => d2(a, bot.pos) - d2(b, bot.pos))[Math.floor(bot.wander) % Math.min(2, open.length)];
@@ -313,7 +326,7 @@ for (;;) {
     }
 
     // speed: living walk 2.4 m/s, hollow 3.3 m/s, cap well under MAX_STEP
-    const perSample = (hollow ? 330 : 240) * (msPerBlock * SAMPLE / 1000);
+    const perSample = (hollow ? 280 : 250) * (msPerBlock * SAMPLE / 1000);
     while (start() + bot.next * SAMPLE <= e) {
       let budget = Math.min(perSample, 400);
       while (budget > 0 && bot.route.length) {
@@ -365,6 +378,28 @@ for (;;) {
       const newSlot = run.some((p) => p.index % 8 === 0) || (run[0].index >> 3) !== (nS >> 3);
       const shiftDue = chainBlock + 1 >= Number(h.nextShift);
       void send(bot.acct, 'record', [nightId, bot.body, run[0].index, packed, run.length, voice], { gas: 78_000n + (newSlot ? 24_000n : 0n) + (shiftDue ? 85_000n : 0n) + (voice ? 6_000n : 0n) });
+    }
+
+    // shopping: a flare from the 24/7 mart, lit once inside a dark landmark
+    if (livingNow(bot.soul) && bot.shopper && !bot.bought) {
+      const latest = nS - 1;
+      for (let i = latest; i >= Math.max(0, latest - 6); i--) {
+        const v = samples[bot.body]?.get(i);
+        if (!v || d2(unpack(v), unpack(objective(4))) > 220 ** 2) continue;
+        bot.bought = true;
+        bot.route = [];
+        void send(bot.acct, 'buy', [nightId, epochAt(start() + i * SAMPLE), bot.body, i, 1], { value: 8_000_000_000_000_000n });
+        console.log(`a bot bought a flare (body ${bot.body})`);
+        break;
+      }
+    }
+    if (!bot.flareUsed && pockets[bot.body]?.[1] > 0) {
+      const t = tileAt(Math.floor(bot.pos.x / CELL), Math.floor(bot.pos.y / CELL));
+      if (t === 'A' || t === 'H' || t === 'S') {
+        bot.flareUsed = true;
+        void send(bot.acct, 'use', [nightId, bot.body, 1]);
+        console.log(`a bot lit a flare in ${t === 'A' ? 'the Archive' : t === 'H' ? 'the hospital' : 'the station'}`);
+      }
     }
 
     // proofs for my own body: fuses, exit
