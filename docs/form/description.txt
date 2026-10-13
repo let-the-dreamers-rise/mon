@@ -1,0 +1,39 @@
+HOLLOW is a first-person horror game where your fear lives on Monad. Every footstep is a transaction, the chain decides whose body you are wearing, and no server decides who died.
+
+A NIGHT IN HALDEN
+Up to eight strangers wake up in Halden, an abandoned company town, at night: rain, fog, dead streetlights, an office maze called the Archive, St. Agnes Hospital, Halden Station. Each player sees the night through their own bodycam. One of them (two, with six or more) is Hollow, and nothing about them gives it away.
+
+Every 30–75 seconds, Monad reshuffles who is wearing whom. The camera tears into static and you come to on your knees somewhere else, in someone else's body. You don't know whose until you look down at the ID band on your wrist. Every body feels different: taller or shorter (the camera height changes), a bad knee that drops you on every other step, hands that won't stop shaking, lungs that can't run for long. Your own body's heartbeat stays on your wrist while someone else wears it. If whoever is wearing it gets turned, it reads SIGNAL LOST.
+
+If a Hollow body gets within arm's reach of a living one, the living soul turns. They stay in play as a hunter, still wearing the same face. Survivors have to find three fuse boxes (one each in the Archive, the hospital and the station), power the bridge gate, and walk out before dawn. The bodycam's tracker points the way along the streets, not through walls, and it lies when you're scared. Players can call out "help me", "over here", "it's me", "don't trust them", "I found a fuse" and "run", and every call is spoken from the body you're wearing. So a voice you trust may be the Hollow's.
+
+Three shops (the 24/7 Mart, the pharmacy and Koda Photo) sell batteries, flares, a music-box lure, pills, adrenaline, and a Polaroid that shows who is really inside a body. Purchases are transactions, and items go into the body's pockets, not yours. After the next swap, someone else is carrying what you bought.
+
+And when you're alone, it gets worse. Something stands at the end of the street, facing you, and every time you look away it is closer. When it's close enough it hunts: the lamps around you die, your heart gets loud, and it runs at you through the streets. Hold your torch on it, or sprint and break its line of sight. Sanity drains in the dark, and then you see figures that aren't there, hear footsteps that stop when you stop, sit through swaps that never happened, and hear the other players' names whispered.
+
+WATCHERS, THE POT, AND THE ARCHIVE
+Anyone can open a running night as a watcher, switch between every bodycam, and pay to torment the players: kill the lights, whisper or scream (0.01 MON each), or force an early swap (0.05 MON). A torment lands in about 0.3 seconds, while the victim is still standing in that corridor. Every fee and every shop sale goes into the night's pot. The souls who escape split it, and if nobody escapes, the Hollow keeps it. Watchers' attention becomes the players' money, with no platform in between.
+
+Nothing is lost. Every finished night joins the Archive: who was Hollow, who turned, who got out, who took the pot. The Haunted ranks every soul by MON won, wins, escapes and nights spent Hollow. Both are read straight from the contract. Any night can be replayed as recovered bodycam footage, rebuilt block by block from nothing but chain data (positions, swaps, touches, fuses, voices, torments), and shared as a link.
+
+WHAT IS ONCHAIN, AND WHY IT MATTERS
+- Movement: each body's position is recorded every 2 blocks (0.6 s) by a session key that lives in the browser. No wallet popups while you play.
+- Swaps: each swap is seeded by the previous block's hash, so every player swaps on the same block and anyone can recompute it.
+- Death and victory: touches, fuses, escapes and shop purchases are proofs, checked against both bodies' recorded positions at the same block. Anyone can submit them, and the contract settles them.
+- Money: there is no owner and no admin key. MON leaves the contract only through claimPot, to the winners of the night it was paid into.
+- Memory: the intro reads your real public history on Monad, and the end screen lists every transaction of your night.
+
+WHY ONLY MONAD
+A night means one to two transactions per second per player, swaps that must land on the same block for everyone, and torments that matter only if they arrive within a second. That needs 300 ms blocks and gas cheap enough to move every second. HOLLOW is also built for how Monad executes:
+- Each body writes its own 128-slot storage page, so players never touch each other's state and their moves can run in parallel.
+- Every call is sized for Monad's gas-limit billing.
+- A step costs about 65k gas.
+
+TRACK 03: SOCIAL, ATTENTION & CULTURE
+- Competitive feeds: the Archive and the Haunted.
+- Attention that turns into ownership: watcher fees pay the survivors.
+- Cultural participation: every night is a permanent, replayable, shareable artifact.
+- An open social graph: souls, bodies and outcomes are public contract state that anyone can build on.
+
+LIVE TODAY
+The game is live at hollow-monad.vercel.app on Monad testnet (contract 0x5C4ef8456A07c61687d72827709Ff65569BB2957). Recovered footage and a free walk through Halden need no wallet. A real night needs a little testnet MON in the session wallet, and that's it.

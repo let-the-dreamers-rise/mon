@@ -1,0 +1,60 @@
+WHO OUR FIRST USERS ARE
+1. Horror streamers and their chats. Horror games are a staple of Twitch and YouTube, and their audiences already pay to interact with the streamer through tips, bits and sound alerts. HOLLOW is built for this: the streamer plays, and the chat becomes watchers who can kill the streamer's lights, whisper in their ear, or force an early swap. They pay MON to do it, the money goes into the pot, and the pot goes to whoever survives. A streamer who gets out takes home what their chat paid to scare them.
+2. The Monad community. Testnet users, Discord regulars and builders who want something to do on Monad that shows off what it can do: real-time, every step onchain, a swap on the same block for everyone. They are our first nights, our first bug reports and our first leaderboard.
+3. Social-deduction and co-op horror players: people who play Among Us, Lethal Company, Phasmophobia or Dead by Daylight with friends. HOLLOW gives them what those games can't: a night nobody can fake, a pot that really pays, and footage that can be rebuilt from the chain forever.
+
+HOW WE REACH THEM
+Streamers first (weeks 1–6 after the hackathon)
+- Hand-pick 10–20 small and mid-size horror streamers (roughly 1k–20k followers). For them, a new format is the difference between a normal stream and a clip that travels.
+- Host their first night: we pre-fund their session wallet, open the night, and give their chat a one-click watcher link.
+- One stream turns hundreds of viewers into watchers at once, and the most engaged become players the next night. The streamer's chat is the funnel.
+
+Every night is a clip (always on)
+- Every finished night can be replayed as recovered bodycam footage, rebuilt from chain data and shared with one link (COPY FOOTAGE LINK).
+- The best moments are short and made for X, TikTok and YouTube Shorts: the swap, the touch, IT at the end of the street, the jump scare. Each clip links straight back into the game.
+- Next we'll add one-click clip export, so the replay becomes the marketing.
+
+Community nights on Monad (weekly)
+- Scheduled "Nights in Halden" with the Monad community on Discord and X, at fixed times so there are always enough souls.
+- Monad ecosystem projects can host private nights for their own communities: a haunted house for a Discord server.
+- The Haunted leaderboard (ranked by MON won, read from the contract) is the season ladder.
+
+Launch season: Halloween
+The hackathon ends about two weeks before October 31. We'll launch a public season, "The Night of the Hollow", with nightly events, a streamer night, and a leaderboard season that closes on Halloween.
+
+Creators and builders
+- Everything is public contract state: souls, bodies, outcomes, replays.
+- We'll publish the "how a horror game runs onchain" story (300 ms blocks, every footstep a transaction, proofs instead of servers) for the Monad developer audience.
+- We'll invite people to build on the data: clip bots, stats sites, alternative clients.
+
+THE ONBOARDING FUNNEL
+1. Zero-wallet entry: recovered footage and the free walk need no wallet, so a link from a clip shows the game instantly.
+2. Watch: open a live night, switch bodycams, torment the players for 0.01 MON.
+3. Play: the session key is created in the browser and signs every step without popups. One top-up (1 MON is about 6 minutes of play on testnet) and you're in.
+4. Next: passkey wallets so a new player never sees a seed phrase, and sponsored first nights so a streamer's chat can try it for free.
+
+WHY PEOPLE COME BACK
+- Identity: your soul's record (nights, escapes, nights spent Hollow, MON won) is permanent and ranked.
+- Every night is different: different roles, different bodies, different swaps, a different pot.
+- Social stakes: friends, rivals and streamers you want to beat or betray.
+- Your own footage: you can rewatch the moment you were turned, from the Hollow's bodycam.
+- Seasons and community nights give a reason to show up at a fixed time.
+
+WHAT WE'LL MEASURE (TARGETS FOR THE FIRST 60 DAYS)
+- 1,000 nights played and 5,000 unique wallets (players and watchers combined).
+- 20 streamers hosted, with a median of 15 or more watchers per streamed night.
+- The share of watchers who become players within 7 days.
+- MON paid in torments per night, and replay links opened per night.
+
+HOW IT SUSTAINS ITSELF
+For the hackathon, there is no platform fee: every MON paid goes to the players. After launch, the options are:
+- a small, transparent rake on pots, set in the contract;
+- sponsored nights and seasons by Monad ecosystem projects;
+- cosmetic bodies.
+Gameplay stays the same for everyone.
+
+RISKS AND HOW WE HANDLE THEM
+- Gas for players: Monad makes per-step transactions cheap, and sponsored nights cover first-timers.
+- Not enough players at once: scheduled nights, streamer-hosted nights, and solo play (alone, IT hunts you).
+- Hidden roles readable from chain state: commit-reveal roles before mainnet.
+- Mainnet launch follows a public testnet season and an external review of the contract.
