@@ -424,7 +424,7 @@ game.onOver = ({ escaped, hollow, txs, night }) => {
     try {
       await wallet.callAndWait('claimPot', [night.id, soul]);
       $('btn-claim').classList.add('hidden');
-      toast(escaped ? 'the watchers paid for your survival' : 'nobody got out. the Hollow keeps what was paid.');
+      toast(escaped ? 'the watchers paid for your survival' : hollow ? 'nobody got out. the Hollow keeps what was paid.' : 'nobody else came. the pot comes back to you.');
     } catch (e) {
       toast(String((e as Error).message).slice(0, 140));
     }
