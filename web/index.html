@@ -99,6 +99,12 @@
     <section id="lobby" class="screen hidden">
       <div class="lobby-wrap">
         <h2 id="lobby-title">NIGHTS</h2>
+        <div id="lobby-fund" class="card hidden">
+          <div class="label">YOUR SESSION WALLET HAS <b id="lf-bal">0</b> MON</div>
+          <div class="hint">Every step you take is a Monad transaction, so a night needs testnet MON for gas (1 MON ≈ 6 minutes of walking). Recovered footage and the free walk are free.</div>
+          <div class="row"><button id="lf-fund" class="primary">TOP UP 1 MON FROM MY WALLET</button><button id="lf-copy">COPY SESSION ADDRESS</button><a class="mini-link" href="https://faucet.monad.xyz" target="_blank" rel="noopener">faucet.monad.xyz →</a></div>
+          <div class="hint">session address <code id="lf-addr"></code></div>
+        </div>
         <p class="hint lobby-how">Open a night and press <b>START NOW</b> to play it right away, or wait for others to <b>JOIN</b> (up to 8). Each night lasts about ten minutes.</p>
         <div id="nights"></div>
         <div class="row">

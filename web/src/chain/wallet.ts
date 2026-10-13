@@ -215,7 +215,16 @@ export async function connectInjected(): Promise<Hex> {
 }
 
 /** A readable reason for a failed call: the contract's custom error name when there is one. */
+/** what to tell a player whose session wallet can't pay for gas */
+export const NO_GAS = 'your session wallet has no MON for gas. Top it up: "top up 1 MON from my wallet", or send testnet MON from faucet.monad.xyz to the session address.';
+
 export function explainError(err: unknown): string {
+  // Monad answers an unfunded sender with -32000 "Signer had insufficient balance", which viem
+  // labels "Missing or invalid parameters"; say what actually happened
+  for (let e: unknown = err, depth = 0; e && depth < 6; depth++, e = (e as { cause?: unknown }).cause) {
+    const x = e as { details?: unknown; message?: unknown };
+    if (/insufficient (balance|funds)/i.test(`${x.details ?? ''} ${x.message ?? ''}`)) return NO_GAS;
+  }
   let e: unknown = err;
   for (let depth = 0; e && depth < 6; depth++) {
     const data = (e as { data?: unknown }).data;

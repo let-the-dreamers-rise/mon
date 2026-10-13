@@ -4,7 +4,7 @@ import { hollowAbi } from './chain/abi';
 import { NightState, encodeName, short } from './chain/night';
 import { ReplayNight } from './chain/replay';
 import { describe, loadArchive } from './chain/archive';
-import { Burner, connectInjected, explainError, fundFromInjected, injectedAddress, publicClient } from './chain/wallet';
+import { Burner, connectInjected, explainError, fundFromInjected, injectedAddress, NO_GAS, publicClient } from './chain/wallet';
 import { Game } from './game/game';
 import { Psych } from './game/psych';
 
@@ -48,12 +48,30 @@ async function refreshBalance() {
     $('bal').textContent = bal;
     const minutes = Number(bal) / MON_PER_MINUTE;
     $('playtime').textContent = minutes >= 1 ? `≈ ${Math.floor(minutes)} min of walking` : Number(bal) > 0 ? 'under a minute of walking' : '';
+    showFunding(parseEther(bal));
   } catch {
     $('bal').textContent = '?';
   }
 }
+/** the lobby's funding card: shown while the session wallet can't pay for a night */
+function showFunding(bal: bigint) {
+  const low = bal < MIN_PLAY_WEI;
+  $('lobby-fund').classList.toggle('hidden', !low);
+  if (low) {
+    $('lf-addr').textContent = wallet.address;
+    $('lf-bal').textContent = formatEther(bal).slice(0, 6);
+  }
+}
+const MIN_PLAY_WEI = parseEther('0.05');
+
 void refreshBalance();
 setInterval(refreshBalance, 8000);
+
+$('lf-copy').onclick = async () => {
+  await navigator.clipboard?.writeText(wallet.address);
+  toast('session address copied: paste it into faucet.monad.xyz');
+};
+$('lf-fund').onclick = () => $('fund').click();
 
 $('copy').onclick = async () => {
   await navigator.clipboard?.writeText(wallet.address);
@@ -261,6 +279,7 @@ async function renderDetail(id: bigint) {
             ? 'Your night has begun. Enter.'
             : 'Too late to join this night.';
   $('btn-join').onclick = async () => {
+    if (!(await hasGas())) return;
     try {
       await wallet.callAndWait('join', [id]);
       toast('you are in. don\'t trust anyone.');
@@ -270,6 +289,7 @@ async function renderDetail(id: bigint) {
     }
   };
   $('btn-start').onclick = async () => {
+    if (!(await hasGas())) return;
     try {
       await wallet.callAndWait('start', [id]);
       toast('the lights go out in 6 seconds');
@@ -282,7 +302,17 @@ async function renderDetail(id: bigint) {
   if (me >= 0 && (phase === 'countdown' || phase === 'night') && mode === 'play' && !entered) void enter(id);
 }
 
+/** a night costs gas from the first step: stop before sending anything the wallet can't pay for */
+async function hasGas(): Promise<boolean> {
+  const bal = await wallet.balance().catch(() => -1n);
+  if (bal < 0n || bal >= MIN_PLAY_WEI) return true;
+  showFunding(bal);
+  toast(`Not enough MON: ${NO_GAS}`, 9000);
+  return false;
+}
+
 $('btn-create').onclick = async () => {
+  if (!(await hasGas())) return;
   try {
     const receipt = await wallet.callAndWait('createNight', []);
     const count = (await publicClient.readContract({ address: NET.hollow, abi: hollowAbi, functionName: 'nightCount' })) as bigint;

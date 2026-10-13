@@ -107,6 +107,10 @@ h2 { font-family: 'Special Elite', serif; font-size: 42px; letter-spacing: 6px; 
 .howto b { color: #f2e6c0; }
 .pitch.small { font-size: 14px; color: var(--dim); }
 .lobby-how { max-width: 640px; }
+#lobby-fund { border-color: rgba(255, 120, 90, 0.45); margin-bottom: 12px; }
+#lobby-fund .label { color: #ffb08a; }
+#lobby-fund code { font-size: 13px; word-break: break-all; }
+.mini-link { align-self: center; font-family: VT323, monospace; font-size: 20px; }
 #feed { position: absolute; top: 110px; left: 22px; display: flex; flex-direction: column; gap: 4px; font-size: 20px; max-width: 46vw; }
 .feed-item { color: #f5d9a0; transition: opacity 2s; }
 .feed-item.fade { opacity: 0; }
