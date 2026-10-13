@@ -18,13 +18,13 @@ contract HollowTest is Test {
     }
 
     function setUp() public {
-        // open 32x32 room: solid border + one internal wall column at x=10, y=5..20
+        // open 64x64 room: solid border + one internal wall column at x=10, y=5..20
         uint256[16] memory walls;
         for (uint256 y = 0; y < 64; y++) {
             for (uint256 x = 0; x < 64; x++) {
                 bool solid = x == 0 || y == 0 || x == 63 || y == 63 || (x == 10 && y >= 5 && y <= 20);
                 if (solid) {
-                    uint256 bit = y * 32 + x;
+                    uint256 bit = y * 64 + x;
                     walls[bit >> 8] |= 1 << (bit & 255);
                 }
             }
@@ -181,6 +181,11 @@ contract HollowTest is Test {
         vm.prank(players[0]);
         vm.expectRevert(Hollow.BadSamples.selector);
         hollow.record(id, uint8(0), 0, 13, pt(11 * CELL + 10, 6 * CELL + 150), 1, 0);
+        // a longer hop after a gap whose midpoint is open (cell 12) but that crosses the wall at cell 10
+        vm.roll(_start(id) + 2 * 17);
+        vm.prank(players[0]);
+        vm.expectRevert(Hollow.BadSamples.selector);
+        hollow.record(id, uint8(0), 0, 17, cellCm(15, 6), 1, 0);
     }
 
     function test_samplesMustBeTimely() public {
@@ -204,6 +209,31 @@ contract HollowTest is Test {
         _rec(id, players[0], 0, 5, _one(cellCm(2, 9)), 0);
         uint32 nS = hollow.bodyInfo(id, 0).nSamples;
         assertEq(nS, 6);
+    }
+
+    /// Not recording must not hide a walk: after a long gap the body can only have covered what the
+    /// late window allows (MAX_GAP_STEPS samples), not gap * MAX_STEP.
+    function test_longGapCannotHideAWalk() public {
+        uint256 id = _night(1); // a lone soul: no shifts get in the way of the arithmetic
+        _rec(id, players[0], 0, 0, _one(cellCm(2, 2)), 0);
+        uint256 cap = hollow.MAX_GAP_STEPS() * hollow.MAX_STEP_CM();
+        // 40 samples later, 40 * 4.2m away would have been fine before; now only `cap` is
+        uint256 far = pt(2 * CELL + 150, 2 * CELL + 150 + cap + 300);
+        vm.roll(_start(id) + 80);
+        vm.prank(players[0]);
+        vm.expectRevert(Hollow.BadSamples.selector);
+        hollow.record(id, 0, 0, 40, far, 1, 0);
+        uint256 near = pt(2 * CELL + 150, 2 * CELL + 150 + cap - 100);
+        vm.prank(players[0]);
+        hollow.record(id, 0, 0, 40, near, 1, 0);
+    }
+
+    function test_zeroIsNeverASample() public {
+        uint256 id = _night(1);
+        vm.roll(_start(id) + 2);
+        vm.prank(players[0]);
+        vm.expectRevert(Hollow.BadSamples.selector);
+        hollow.record(id, 0, 0, 0, 0, 1, 0);
     }
 
     function test_shiftMovesEverySoulToAnotherBody() public {
@@ -387,30 +417,156 @@ contract HollowTest is Test {
         assertEq(epoch, 1);
     }
 
-    function test_survivorsSplitThePot() public {
-        // reuse the escape walk, then fund the pot and claim after the night
+    function _roles(uint256 id, uint256 count) internal view returns (uint256 h) {
+        for (uint256 i = 0; i < count; i++) {
+            if (_hollowSince(id, i) != 0) h = i;
+        }
+    }
+
+    function test_nobodyEscapedSoTheHollowKeepsThePot() public {
         uint256 id = _night(2);
         address watcher = makeAddr("watcher");
         vm.deal(watcher, 1 ether);
         vm.roll(_start(id) + 1);
         vm.prank(watcher);
         hollow.torment{value: 0.01 ether}(id, 3, 0);
-        uint256 h;
-        for (uint256 i = 0; i < 2; i++) {
-            if (_hollowSince(id, i) != 0) h = i;
-        }
+        uint256 h = _roles(id, 2);
         uint256 v = 1 - h;
-        vm.prank(players[v]);
+        // not before dawn
+        vm.prank(players[h]);
         vm.expectRevert(Hollow.NightOver.selector);
-        hollow.claimPot(id);
-        vm.roll(_start(id) + 2400);
+        hollow.claimPot(id, uint8(h));
+        vm.roll(_start(id) + hollow.NIGHT_BLOCKS());
+        // the living soul that never got out wins nothing
         vm.prank(players[v]);
         vm.expectRevert(Hollow.NothingToClaim.selector);
-        hollow.claimPot(id); // did not escape
+        hollow.claimPot(id, uint8(v));
+        // nobody can claim as someone else
+        vm.prank(players[v]);
+        vm.expectRevert(Hollow.NotASoul.selector);
+        hollow.claimPot(id, uint8(h));
+        assertEq(hollow.claimable(id, uint8(h)), 0.01 ether);
+        uint256 before = players[h].balance;
+        vm.prank(players[h]);
+        hollow.claimPot(id, uint8(h));
+        assertEq(players[h].balance - before, 0.01 ether);
+        assertEq(hollow.claimable(id, uint8(h)), 0);
+        // once only
+        vm.prank(players[h]);
+        vm.expectRevert(Hollow.NothingToClaim.selector);
+        hollow.claimPot(id, uint8(h));
+    }
+
+    function test_escapeesSplitThePot() public {
+        uint256 id = _night(2);
+        uint256 h = _roles(id, 2);
+        uint256 v = 1 - h;
+        address watcher = makeAddr("watcher");
+        vm.deal(watcher, 1 ether);
+        vm.roll(_start(id) + 1);
+        vm.prank(watcher);
+        hollow.torment{value: 0.01 ether}(id, 2, 0);
+        // walk soul v's body over the fuses to the exit (same route as the escape test)
+        uint8 body = uint8(v);
+        uint256 x = 2 + 2 * v;
+        uint256 y = 2;
+        uint32 idx = 0;
+        _rec(id, players[v], body, idx++, _one(cellCm(x, y)), 0);
+        while (y < 8) _rec(id, players[v], body, idx++, _one(cellCm(x, ++y)), 0);
+        while (x > 5) _rec(id, players[v], body, idx++, _one(cellCm(--x, y)), 0);
+        while (x < 5) _rec(id, players[v], body, idx++, _one(cellCm(++x, y)), 0);
+        hollow.collectFuse(id, 0, body, idx - 1, 0);
+        _rec(id, players[v], body, idx++, _one(cellCm(6, 8)), 0);
+        hollow.collectFuse(id, 0, body, idx - 1, 1);
+        _rec(id, players[v], body, idx++, _one(cellCm(7, 8)), 0);
+        hollow.collectFuse(id, 0, body, idx - 1, 2);
+        _rec(id, players[v], body, idx++, _one(cellCm(8, 8)), 0);
+        y = 8;
+        while (y < 12) _rec(id, players[v], body, idx++, _one(cellCm(8, ++y)), 0);
+        hollow.escape(id, 0, body, idx - 1);
+        // the night ended when the last living soul left
+        assertGt(_n(id).endBlock, 0);
+        // the Hollow gets nothing when someone escaped
+        vm.prank(players[h]);
+        vm.expectRevert(Hollow.NothingToClaim.selector);
+        hollow.claimPot(id, uint8(h));
+        uint256 before = players[v].balance;
+        vm.prank(players[v]);
+        hollow.claimPot(id, uint8(v));
+        assertEq(players[v].balance - before, 0.01 ether);
+    }
+
+    /// The old rollOver let anyone park a pot in a lobby that never starts (locked forever) or farm
+    /// failed nights' pots with a solo night. There is no path for MON other than claimPot.
+    function test_potHasNoOtherExit() public {
+        uint256 id = _night(1);
+        address watcher = makeAddr("watcher");
+        vm.deal(watcher, 1 ether);
+        vm.roll(_start(id) + 1);
+        vm.prank(watcher);
+        hollow.torment{value: 0.01 ether}(id, 2, 0);
+        vm.roll(_start(id) + hollow.NIGHT_BLOCKS());
+        // a lone soul with no Hollow and no escape gets its own night's pot back, nobody else can
+        vm.prank(watcher);
+        vm.expectRevert(Hollow.NotASoul.selector);
+        hollow.claimPot(id, 0);
         vm.prank(players[0]);
-        uint256 next = hollow.createNight();
-        hollow.rollOver(id, next);
-        assertEq(hollow.pot(next), 0.01 ether);
+        hollow.claimPot(id, 0);
+        assertEq(address(hollow).balance, 0);
+    }
+
+    /// Long idle gaps used to make a body unprovable (a 256-sample scan limit): a camper could resume
+    /// recording right after being touched and void the proof. Gaps of any length are now provable.
+    function test_longGapsStayProvable() public {
+        uint256 id = _night(2);
+        uint256 h = _roles(id, 2);
+        uint256 v = 1 - h;
+        uint256 vx = 2 + 2 * v;
+        // the Hollow's body walks onto the victim's spawn and stands there
+        _rec(id, players[h], uint8(h), 0, _one(cellCm(2 + 2 * h, 2)), 0);
+        _rec(id, players[h], uint8(h), 1, _one(cellCm(3, 2)), 0);
+        _rec(id, players[h], uint8(h), 2, _one(cellCm(vx, 2)), 0);
+        // the victim's body records once, idles for 300 samples, then records again in place
+        _rec(id, players[v], uint8(v), 0, _one(cellCm(vx, 2)), 0);
+        uint32 resume = 300;
+        vm.roll(_start(id) + 2 * uint256(resume));
+        hollow.sync(id);
+        uint256 e = _n(id).epoch;
+        uint8 wearer = uint8(_soulInBody(id, e, v));
+        vm.prank(players[wearer]);
+        hollow.record(id, wearer, uint8(v), resume, cellCm(vx, 2), 1, 0);
+        // a touch deep inside the gap (more than 256 samples after the last recorded one)
+        uint32 index = 290;
+        (uint32 ep, uint256 eStart) = _epochOf(id, _start(id) + 2 * uint256(index));
+        while (_start(id) + 2 * uint256(index) < eStart + hollow.SHIFT_GRACE_BLOCKS()) {
+            index--;
+            (ep, eStart) = _epochOf(id, _start(id) + 2 * uint256(index));
+        }
+        assertGt(index, 256);
+        uint8 victimBody = uint8(_soulInBody(id, ep, v) == v ? v : h);
+        uint8 hollowBody = victimBody == uint8(v) ? uint8(h) : uint8(v);
+        hollow.turn(id, ep, victimBody, hollowBody, index);
+        assertGt(_hollowSince(id, v), 0);
+    }
+
+    /// The gas design relies on each night's record and each body's samples sitting inside one
+    /// 128-slot storage page: check the data really lands at the page-aligned slots.
+    function test_storageIsPageAligned() public {
+        uint256 id = _night(2);
+        bytes32 nightSlot = keccak256(abi.encode(id, "hollow.night")) & ~bytes32(uint256(0x7f));
+        assertEq(uint256(nightSlot) % 128, 0);
+        assertEq(address(uint160(uint256(vm.load(address(hollow), nightSlot)))), players[0]);
+        _rec(id, players[0], 0, 0, _one(cellCm(2, 2)), 0);
+        bytes32 sampleSlot = keccak256(abi.encode(id, uint256(0), "hollow.samples")) & ~bytes32(uint256(0x7f));
+        assertEq(uint256(vm.load(address(hollow), sampleSlot)) & 0xFFFFFFFF, cellCm(2, 2));
+    }
+
+    function _epochOf(uint256 id, uint256 blk) internal view returns (uint32 e, uint256 eStart) {
+        uint256 cur = _n(id).epoch;
+        for (uint256 i = 0; i <= cur; i++) {
+            uint256 st = (_epochWord(id, i) >> 32) & type(uint64).max;
+            if (st <= blk) (e, eStart) = (uint32(i), st);
+        }
     }
 
     function test_shopsSellIntoTheBodysPockets() public {
@@ -425,26 +581,30 @@ contract HollowTest is Test {
         // too cheap
         vm.prank(players[0]);
         vm.expectRevert(Hollow.FeeTooLow.selector);
-        hollow.buy{value: 0.001 ether}(id, 0, 0, 2, 0);
+        hollow.buy{value: 0.001 ether}(id, 0, 0, 0, 2, 0);
         // pills are sold at the pharmacy, not here
         vm.prank(players[0]);
         vm.expectRevert(Hollow.NotAtShop.selector);
-        hollow.buy{value: 0.004 ether}(id, 0, 0, 2, 3);
+        hollow.buy{value: 0.004 ether}(id, 0, 0, 0, 2, 3);
         // a battery from the mart
         vm.prank(players[0]);
-        hollow.buy{value: 0.004 ether}(id, 0, 0, 2, 0);
+        hollow.buy{value: 0.004 ether}(id, 0, 0, 0, 2, 0);
         assertEq(hollow.pocketsOf(id, 0) & 0xFFFF, 1);
         assertEq(hollow.pot(id), 0.004 ether);
         // someone else cannot use body 0's battery
         vm.prank(players[1]);
         vm.expectRevert(Hollow.NotYourBody.selector);
-        hollow.use(id, 0, 0);
+        hollow.use(id, 1, 0, 0);
+        // nor pretend to be its soul
+        vm.prank(players[1]);
+        vm.expectRevert(Hollow.NotASoul.selector);
+        hollow.use(id, 0, 0, 0);
         vm.prank(players[0]);
-        hollow.use(id, 0, 0);
+        hollow.use(id, 0, 0, 0);
         assertEq(hollow.pocketsOf(id, 0) & 0xFFFF, 0);
         vm.prank(players[0]);
         vm.expectRevert(Hollow.NoItem.selector);
-        hollow.use(id, 0, 0);
+        hollow.use(id, 0, 0, 0);
     }
 
     function test_pocketsStayWithTheBodyAfterAShift() public {
@@ -456,7 +616,7 @@ contract HollowTest is Test {
         pts[2] = cellCm(3, 3);
         _rec(id, players[0], 0, 0, pts, 0);
         vm.prank(players[0]);
-        hollow.buy{value: 0.008 ether}(id, 0, 0, 2, 1); // a flare in body 0's pocket
+        hollow.buy{value: 0.008 ether}(id, 0, 0, 0, 2, 1); // a flare in body 0's pocket
         uint64 nextShift = _n(id).nextShift;
         vm.roll(nextShift);
         hollow.sync(id);
@@ -465,9 +625,9 @@ contract HollowTest is Test {
         // the original owner lost it; whoever wears body 0 now can light it
         vm.prank(players[0]);
         vm.expectRevert(Hollow.NotYourBody.selector);
-        hollow.use(id, 0, 1);
+        hollow.use(id, 0, 0, 1);
         vm.prank(players[wearer]);
-        hollow.use(id, 0, 1);
+        hollow.use(id, uint8(wearer), 0, 1);
     }
 
     function test_rolesComeFromAFutureBlock() public {

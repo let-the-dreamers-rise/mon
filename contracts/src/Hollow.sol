@@ -17,13 +17,16 @@ contract Hollow {
     // ---------------------------------------------------------------- timing (in blocks, ~0.3s each)
     uint256 public constant SAMPLE_BLOCKS = 2; // one position sample per body every 2 blocks
     uint256 public constant LATE_BLOCKS = 16; // samples must be submitted within ~4.8s (limits retroactive moves)
+    /// @dev a gap in a body's samples means it stood still; the sample that ends a gap may cover at most
+    ///      as much ground as LATE_BLOCKS of movement, so not recording can never hide a longer walk
+    uint256 public constant MAX_GAP_STEPS = LATE_BLOCKS / SAMPLE_BLOCKS;
     uint256 public constant COUNTDOWN_BLOCKS = 20; // after start() before the night begins
     uint256 public constant START_GRACE_BLOCKS = 30; // no turning in the first ~9s
     uint256 public constant SHIFT_GRACE_BLOCKS = 10; // no turning ~3s after each shift
     uint256 public constant FIRST_SHIFT_MIN = 120;
     uint256 public constant SHIFT_MIN = 100; // shifts every 30s..75s
     uint256 public constant SHIFT_RANGE = 150;
-    uint256 public constant NIGHT_BLOCKS = 2400; // a night lasts at most ~12 minutes
+    uint256 public constant NIGHT_BLOCKS = 2000; // a night lasts at most ~10 minutes
     uint256 public constant LOBBY_BLOCKS = 600;
 
     // ---------------------------------------------------------------- distances (cm)
@@ -49,16 +52,31 @@ contract Hollow {
     // 0 battery, 1 flare, 2 music box (24/7 mart) · 3 pills, 4 adrenaline (pharmacy) · 5 polaroid (photo)
 
     uint256 public constant MAX_SOULS = 8;
-    /// @dev how far back a proof may look for the last recorded sample of an idle body
-    uint256 public constant MAX_SCAN = 256;
 
-    // ---------------------------------------------------------------- immutable map data
-    /// @dev bit (cy*GRID + cx) set => solid cell. 4096 bits over 16 words.
-    uint256[16] public walls;
+    // ---------------------------------------------------------------- the town, baked into the bytecode
+    /// @dev Halden is immutable, so it lives in code rather than storage: reading it costs a few gas
+    ///      instead of a cold storage page (8,100 gas on Monad) on every move.
+    ///      Walls: bit (cy*GRID + cx) set => solid cell, 4096 bits over 16 words.
+    uint256 private immutable W0;
+    uint256 private immutable W1;
+    uint256 private immutable W2;
+    uint256 private immutable W3;
+    uint256 private immutable W4;
+    uint256 private immutable W5;
+    uint256 private immutable W6;
+    uint256 private immutable W7;
+    uint256 private immutable W8;
+    uint256 private immutable W9;
+    uint256 private immutable W10;
+    uint256 private immutable W11;
+    uint256 private immutable W12;
+    uint256 private immutable W13;
+    uint256 private immutable W14;
+    uint256 private immutable W15;
     /// @dev 8 spawn points, 32 bits each: x(16) | y(16) << 16
-    uint256 public spawns;
+    uint256 public immutable spawns;
     /// @dev fuse0, fuse1, fuse2, exit, shop0 (24/7 mart), shop1 (pharmacy), shop2 (photo) — 32 bits each
-    uint256 public objectives;
+    uint256 public immutable objectives;
 
     // ---------------------------------------------------------------- state
     struct Night {
@@ -79,6 +97,7 @@ contract Hollow {
         uint8 escapedCount;
         uint64 lastForcedShift;
         bool rolesSet; // the Hollow is chosen from the hash of the block before startBlock
+        uint8 potClaimed; // bitmask of souls that took their share
     }
 
     struct Soul {
@@ -95,14 +114,16 @@ contract Hollow {
         uint32 voiceIndex; // sample index the voice was spoken at
     }
 
-    /// @dev Monad prices storage by 128-slot page (first touch 8,100 gas, then 100), so everything a
-    ///      move touches lives together: a night's header, souls, bodies, pockets and epoch history
-    ///      are one contiguous record, and each body's samples are one contiguous array.
+    /// @dev Monad prices storage by 128-slot page (first touch 8,100 gas, then 100). A move touches
+    ///      exactly two pages: its night's record (header, pot, souls, bodies, pockets and epoch
+    ///      history, 68 slots) and its body's sample array (128 slots). Both are placed at
+    ///      page-aligned slots (see _night and _samples) so neither straddles a page boundary.
     uint256 public constant MAX_EPOCHS = 40;
-    uint256 public constant SAMPLE_SLOTS = 160; // 1,280 samples per body > NIGHT_BLOCKS / SAMPLE_BLOCKS
+    uint256 public constant SAMPLE_SLOTS = 128; // 1,024 samples per body > NIGHT_BLOCKS / SAMPLE_BLOCKS
 
     struct NightData {
         Night n; // 3 slots
+        uint256 pot; // watcher fees and shop sales, split between the winners
         Soul[8] souls; // 8 slots
         Body[8] bodies; // 8 slots
         uint256[8] pockets; // item counts per body, 16 bits per item. Pockets belong to bodies, not souls.
@@ -112,14 +133,8 @@ contract Hollow {
     }
 
     uint256 public nightCount;
-    mapping(uint256 => NightData) internal nightData;
-    /// @dev (night << 3 | body) => 8 packed samples per slot
-    mapping(uint256 => uint256[160]) internal sampleStore;
     mapping(uint256 => mapping(address => uint256)) public soulIndexPlus1;
     mapping(address => bytes16) public names;
-    /// @dev watcher fees and shop sales per night, split between the souls that escape
-    mapping(uint256 => uint256) public pot;
-    mapping(uint256 => mapping(uint256 => bool)) public potClaimed;
 
     // ---------------------------------------------------------------- events
     event NightCreated(uint256 indexed night, address indexed host, uint64 lobbyEnd);
@@ -133,7 +148,6 @@ contract Hollow {
     event Voice(uint256 indexed night, uint8 body, uint8 voice, uint32 sampleIndex);
     event Torment(uint256 indexed night, address indexed watcher, uint8 kind, uint8 body, uint64 atBlock, uint256 paid);
     event PotClaimed(uint256 indexed night, uint8 soul, uint256 amount);
-    event PotRolledOver(uint256 indexed fromNight, uint256 indexed toNight, uint256 amount);
     event Bought(uint256 indexed night, uint8 body, uint8 soul, uint8 item, uint256 paid);
     event Used(uint256 indexed night, uint8 body, uint8 soul, uint8 item, uint32 pos, uint64 atBlock);
 
@@ -154,8 +168,11 @@ contract Hollow {
     error PocketsFull();
     error NoItem();
 
+    /// @dev No owner, no admin, no upgrades, no withdraw: MON only leaves through claimPot.
     constructor(uint256[16] memory walls_, uint256 spawns_, uint256 objectives_) {
-        walls = walls_;
+        (W0, W1, W2, W3, W4, W5, W6, W7) = (walls_[0], walls_[1], walls_[2], walls_[3], walls_[4], walls_[5], walls_[6], walls_[7]);
+        (W8, W9, W10, W11, W12, W13, W14, W15) =
+            (walls_[8], walls_[9], walls_[10], walls_[11], walls_[12], walls_[13], walls_[14], walls_[15]);
         spawns = spawns_;
         objectives = objectives_;
     }
@@ -168,7 +185,7 @@ contract Hollow {
 
     function createNight() external returns (uint256 id) {
         id = ++nightCount;
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         n.host = msg.sender;
         n.lobbyEnd = uint64(block.number + LOBBY_BLOCKS);
@@ -176,7 +193,7 @@ contract Hollow {
     }
 
     function join(uint256 id) external {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         if (n.host == address(0) || n.startBlock != 0 || block.number >= n.lobbyEnd) revert NotInLobby();
         if (n.nSouls >= MAX_SOULS) revert NightFull();
@@ -189,7 +206,7 @@ contract Hollow {
 
     /// @notice The host can start early; anyone can start once the lobby window has passed.
     function start(uint256 id) external {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         if (n.host == address(0) || n.startBlock != 0) revert NotInLobby();
         if (msg.sender != n.host && block.number < n.lobbyEnd) revert NotInLobby();
@@ -224,7 +241,7 @@ contract Hollow {
     /// @param packed samples, 32 bits each (x | y<<16), first sample in the low bits
     /// @param voice voice line id spoken at the last sample (0 = none)
     function record(uint256 id, uint8 soul, uint8 body, uint32 fromIndex, uint256 packed, uint8 count, uint8 voice) external {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         uint256 startBlock = n.startBlock;
         if (startBlock == 0 || block.number < startBlock) revert NotStarted();
@@ -253,7 +270,7 @@ contract Hollow {
         }
 
         // samples are append-only; skipped indices mean "stood still" (a zero word marks a gap)
-        uint256[160] storage store = sampleStore[(id << 3) | body];
+        uint256[128] storage store = _samples(id, body);
         uint256 prevIndex = b.nSamples; // index the previous position belongs to (+1)
         uint256 pos = prevIndex == 0 ? (spawns >> (32 * body)) & 0xFFFFFFFF : b.lastPos;
         uint256 idx = first;
@@ -264,13 +281,17 @@ contract Hollow {
             uint256 p = (packed >> (32 * k)) & 0xFFFFFFFF;
             uint256 x = p & 0xFFFF;
             uint256 y = p >> 16;
-            if (x >= WORLD_CM || y >= WORLD_CM || _solid(x, y)) revert BadSamples();
-            // allowed travel grows with the number of sample intervals since the last known position
+            // a zero word marks a gap, so (0,0) can never be a sample (it is solid anyway)
+            if (p == 0 || x >= WORLD_CM || y >= WORLD_CM || _solid(x, y)) revert BadSamples();
+            // allowed travel grows with the sample intervals since the last known position, but a gap
+            // means "stood still": ending one may not cover more than the late window's worth of ground
             uint256 steps = idx + 1 - prevIndex;
-            uint256 reach = prevIndex == 0 && k == 0 ? SPAWN_RADIUS_CM + MAX_STEP_CM * idx : MAX_STEP_CM * steps;
-            if (_dist2(p, pos) > reach * reach) revert BadSamples();
-            // no stepping through walls: the midpoint of each hop must be open too
-            if (_solid(((p & 0xFFFF) + (pos & 0xFFFF)) / 2, ((p >> 16) + (pos >> 16)) / 2)) revert BadSamples();
+            if (steps > MAX_GAP_STEPS) steps = MAX_GAP_STEPS;
+            uint256 reach = prevIndex == 0 && k == 0 ? SPAWN_RADIUS_CM + MAX_STEP_CM * steps : MAX_STEP_CM * steps;
+            uint256 d2 = _dist2(p, pos);
+            if (d2 > reach * reach) revert BadSamples();
+            // no walking through walls: probe the hop every 1.4 m
+            if (!_clear(pos, p, d2)) revert BadSamples();
             if ((idx >> 3) != slot) {
                 store[slot] = word;
                 slot = idx >> 3;
@@ -297,7 +318,7 @@ contract Hollow {
 
     /// @notice Prove that a Hollow-controlled body touched a living soul's body.
     function turn(uint256 id, uint32 epoch, uint8 victimBody, uint8 hollowBody, uint32 index) external {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         _sync(id, d);
         if (_isOver(n)) revert NightOver();
@@ -325,7 +346,7 @@ contract Hollow {
 
     /// @notice Prove that a living soul walked a body onto a fuse.
     function collectFuse(uint256 id, uint32 epoch, uint8 body, uint32 index, uint8 fuse) external {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         _sync(id, d);
         if (_isOver(n)) revert NightOver();
@@ -347,7 +368,7 @@ contract Hollow {
 
     /// @notice Prove that a living soul reached the powered exit. The soul and the body it wore leave the night.
     function escape(uint256 id, uint32 epoch, uint8 body, uint32 index) external {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         _sync(id, d);
         if (_isOver(n)) revert NightOver();
@@ -392,49 +413,45 @@ contract Hollow {
 
     /// @notice Buy an item into the pockets of the body you wear. Your recorded position at sample
     ///         `index` must be at the counter of the shop that sells it. The price goes to the pot.
-    function buy(uint256 id, uint32 epoch, uint8 body, uint32 index, uint8 item) external payable {
-        NightData storage d = nightData[id];
+    function buy(uint256 id, uint8 soul, uint32 epoch, uint8 body, uint32 index, uint8 item) external payable {
+        NightData storage d = _night(id);
         Night storage n = d.n;
         _sync(id, d);
         if (_isOver(n)) revert NightOver();
         if (msg.value != itemPrice(item)) revert FeeTooLow(); // exact: no silent overpayment
         _checkSample(d, epoch, index);
-        uint256 s = soulIndexPlus1[id][msg.sender];
-        if (s == 0) revert NotASoul();
-        s -= 1;
-        if ((d.epochs[epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
+        if (soul >= n.nSouls || d.souls[soul].addr != msg.sender) revert NotASoul();
+        if (body >= n.nSouls || (d.epochs[epoch] >> (4 * body)) & 0xF != soul) revert NotYourBody();
         uint256 counter = (objectives >> (32 * (4 + itemShop(item)))) & 0xFFFFFFFF;
         if (_dist2(_sampleAt(id, d, body, index), counter) > SHOP_RADIUS_CM * SHOP_RADIUS_CM) revert NotAtShop();
         uint256 p = d.pockets[body];
         uint256 count = (p >> (16 * item)) & 0xFFFF;
         if (count >= MAX_ITEM_STACK) revert PocketsFull();
         d.pockets[body] = p + (uint256(1) << (16 * item));
-        pot[id] += msg.value;
-        emit Bought(id, body, uint8(s), item, msg.value);
+        d.pot += msg.value;
+        emit Bought(id, body, soul, item, msg.value);
     }
 
     /// @notice Use an item from the pockets of the body you wear right now.
-    function use(uint256 id, uint8 body, uint8 item) external {
-        NightData storage d = nightData[id];
+    function use(uint256 id, uint8 soul, uint8 body, uint8 item) external {
+        NightData storage d = _night(id);
         Night storage n = d.n;
         _sync(id, d);
         if (_isOver(n) || n.startBlock == 0 || block.number < n.startBlock) revert NightOver();
         if (item >= ITEM_COUNT) revert NoItem();
-        uint256 s = soulIndexPlus1[id][msg.sender];
-        if (s == 0) revert NotASoul();
-        s -= 1;
-        if ((d.epochs[n.epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
+        if (soul >= n.nSouls || d.souls[soul].addr != msg.sender) revert NotASoul();
+        if (body >= n.nSouls || (d.epochs[n.epoch] >> (4 * body)) & 0xF != soul) revert NotYourBody();
         uint256 p = d.pockets[body];
         if ((p >> (16 * item)) & 0xFFFF == 0) revert NoItem();
         Body storage b = d.bodies[body];
         if (b.goneRel != 0) revert NotYourBody();
         d.pockets[body] = p - (uint256(1) << (16 * item));
         uint32 pos = b.nSamples == 0 ? uint32((spawns >> (32 * body)) & 0xFFFFFFFF) : b.lastPos;
-        emit Used(id, body, uint8(s), item, pos, uint64(block.number));
+        emit Used(id, body, soul, item, pos, uint64(block.number));
     }
 
     function getPockets(uint256 id) external view returns (uint256[] memory out) {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         uint256 c = d.n.nSouls;
         out = new uint256[](c);
         for (uint256 i = 0; i < c; i++) {
@@ -447,7 +464,7 @@ contract Hollow {
     /// @notice Watchers pay to torment a running night. Every fee goes to the survivors' pot.
     /// @param kind 1 lights out around a body, 2 whisper at a body, 3 scream at a body, 4 force an early shift
     function torment(uint256 id, uint8 kind, uint8 body) external payable {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         Night storage n = d.n;
         if (n.startBlock == 0 || block.number < n.startBlock) revert NotStarted();
         if (_isOver(n)) revert NightOver();
@@ -461,42 +478,55 @@ contract Hollow {
             uint256 soon = block.number + FORCE_SHIFT_DELAY;
             if (n.nextShift > soon) n.nextShift = uint64(soon);
         }
-        pot[id] += msg.value;
+        d.pot += msg.value;
         emit Torment(id, msg.sender, kind, body, uint64(block.number), msg.value);
     }
 
-    /// @notice After the night, each escaped soul claims an equal share of the watchers' pot.
-    function claimPot(uint256 id) external {
-        NightData storage d = nightData[id];
+    /// @notice After the night the winners split the pot: the souls that escaped, or, if nobody got
+    ///         out, every soul that ended the night Hollow. (A night with neither — a lone soul that
+    ///         never escaped — returns the pot to its only soul.) Nothing can move the pot anywhere else.
+    function claimPot(uint256 id, uint8 soul) external {
+        NightData storage d = _night(id);
         Night storage n = d.n;
-        if (!_isOver(n)) revert NightOver();
-        uint256 s = soulIndexPlus1[id][msg.sender];
-        if (s == 0) revert NotASoul();
-        s -= 1;
-        if (d.souls[s].escapedRel == 0 || potClaimed[id][s] || n.escapedCount == 0) revert NothingToClaim();
-        potClaimed[id][s] = true;
-        uint256 share = pot[id] / n.escapedCount;
-        emit PotClaimed(id, uint8(s), share);
+        if (n.startBlock == 0 || !_isOver(n)) revert NightOver();
+        if (!n.rolesSet) _assignRoles(id, d); // a night nobody synced still has a Hollow
+        if (soul >= n.nSouls || d.souls[soul].addr != msg.sender) revert NotASoul();
+        (uint256 winners, bool won) = _winners(d, soul);
+        if (!won || (n.potClaimed >> soul) & 1 == 1 || d.pot == 0) revert NothingToClaim();
+        n.potClaimed |= uint8(1 << soul);
+        uint256 share = d.pot / winners;
+        emit PotClaimed(id, soul, share);
         (bool ok,) = msg.sender.call{value: share}("");
         require(ok, "transfer failed");
     }
 
-    /// @notice If nobody escaped, the pot haunts the next night instead.
-    function rollOver(uint256 id, uint256 toNight) external {
-        NightData storage d = nightData[id];
+    /// @notice What `soul` can still claim from night `id` (0 if nothing).
+    function claimable(uint256 id, uint8 soul) external view returns (uint256) {
+        NightData storage d = _night(id);
         Night storage n = d.n;
-        if (!_isOver(n) || n.escapedCount != 0) revert NothingToClaim();
-        if (toNight <= id || nightData[toNight].n.host == address(0) || _isOver(nightData[toNight].n)) revert InvalidProof();
-        uint256 amount = pot[id];
-        if (amount == 0) revert NothingToClaim();
-        pot[id] = 0;
-        pot[toNight] += amount;
-        emit PotRolledOver(id, toNight, amount);
+        if (n.startBlock == 0 || !_isOver(n) || !n.rolesSet || soul >= n.nSouls || (n.potClaimed >> soul) & 1 == 1) return 0;
+        (uint256 winners, bool won) = _winners(d, soul);
+        return won ? d.pot / winners : 0;
+    }
+
+    function pot(uint256 id) external view returns (uint256) {
+        return _night(id).pot;
+    }
+
+    function _winners(NightData storage d, uint256 soul) private view returns (uint256 count, bool won) {
+        Night storage n = d.n;
+        if (n.escapedCount != 0) return (n.escapedCount, d.souls[soul].escapedRel != 0);
+        uint256 c = n.nSouls;
+        for (uint256 i = 0; i < c; i++) {
+            if (d.souls[i].hollowSince != 0) count++;
+        }
+        if (count != 0) return (count, d.souls[soul].hollowSince != 0);
+        return (c, true);
     }
 
     /// @notice Anyone can push pending shifts forward (clients do it automatically).
     function sync(uint256 id) external {
-        _sync(id, nightData[id]);
+        _sync(id, _night(id));
     }
 
     // ================================================================ internals
@@ -523,30 +553,37 @@ contract Hollow {
     }
 
     /// @dev position of `body` at sample `index`: the last recorded sample at or before it, the
-    ///      body's spawn if it never moved, or its last position once the index can no longer be written
-    function _sampleAt(uint256 id, NightData storage d, uint8 body, uint32 index) private view returns (uint256) {
+    ///      body's spawn if it never moved, or its last position once the index can no longer be written.
+    ///      Gaps are skipped a whole slot (8 samples) at a time; the array is one warm page, so even the
+    ///      longest possible gap costs a few thousand gas, and no gap can make a body unprovable.
+    function _sampleAt(uint256 id, NightData storage d, uint8 body, uint32 index) private view returns (uint256 pos) {
         Night storage n = d.n;
         Body storage b = d.bodies[body];
-        uint256[160] storage store = sampleStore[(id << 3) | body];
         uint256 nS = b.nSamples;
+        uint256 spawn = (spawns >> (32 * body)) & 0xFFFFFFFF;
         if (index >= nS) {
             if (n.startBlock + uint256(index) * SAMPLE_BLOCKS + LATE_BLOCKS >= block.number) revert InvalidProof();
-            return nS == 0 ? (spawns >> (32 * body)) & 0xFFFFFFFF : b.lastPos;
+            return nS == 0 ? spawn : b.lastPos;
         }
+        uint256[128] storage store = _samples(id, body);
         uint256 i = index;
-        uint256 slot = type(uint256).max;
-        uint256 word;
-        for (uint256 scanned = 0; scanned < MAX_SCAN; scanned++) {
-            if ((i >> 3) != slot) {
-                slot = i >> 3;
-                word = store[slot];
-            }
+        uint256 word = store[i >> 3];
+        while (true) {
             uint256 v = (word >> (32 * (i & 7))) & 0xFFFFFFFF;
             if (v != 0) return v;
-            if (i == 0) return (spawns >> (32 * body)) & 0xFFFFFFFF;
-            i--;
+            if (i == 0) return spawn;
+            if (i & 7 != 0) {
+                i--;
+                continue;
+            }
+            uint256 slot = (i >> 3) - 1;
+            word = store[slot];
+            while (word == 0) {
+                if (slot == 0) return spawn;
+                word = store[--slot];
+            }
+            i = slot * 8 + 7;
         }
-        revert InvalidProof();
     }
 
     function _isOver(Night storage n) private view returns (bool) {
@@ -633,9 +670,52 @@ contract Hollow {
         return assign | (startBlock << 32) | (mask << 96);
     }
 
+    /// @dev a night's record at a page-aligned slot (the low 7 bits cleared), so it never spans two pages
+    function _night(uint256 id) private pure returns (NightData storage d) {
+        bytes32 h = keccak256(abi.encode(id, "hollow.night"));
+        assembly {
+            d.slot := and(h, not(0x7f))
+        }
+    }
+
+    /// @dev one body's samples: exactly one 128-slot page
+    function _samples(uint256 id, uint256 body) private pure returns (uint256[128] storage a) {
+        bytes32 h = keccak256(abi.encode(id, body, "hollow.samples"));
+        assembly {
+            a.slot := and(h, not(0x7f))
+        }
+    }
+
+    function _wallWord(uint256 i) private view returns (uint256) {
+        if (i < 8) {
+            if (i < 4) return i < 2 ? (i == 0 ? W0 : W1) : (i == 2 ? W2 : W3);
+            return i < 6 ? (i == 4 ? W4 : W5) : (i == 6 ? W6 : W7);
+        }
+        if (i < 12) return i < 10 ? (i == 8 ? W8 : W9) : (i == 10 ? W10 : W11);
+        return i < 14 ? (i == 12 ? W12 : W13) : (i == 14 ? W14 : W15);
+    }
+
     function _solid(uint256 x, uint256 y) private view returns (bool) {
+        if (x >= WORLD_CM || y >= WORLD_CM) return true;
         uint256 bit = (y / CELL_CM) * GRID + (x / CELL_CM);
-        return (walls[bit >> 8] >> (bit & 255)) & 1 == 1;
+        return (_wallWord(bit >> 8) >> (bit & 255)) & 1 == 1;
+    }
+
+    /// @dev true if the straight hop a -> b (squared length d2) crosses no solid cell, probed every
+    ///      <= 1.4 m. Hops under 1.4 m between open cells can at most clip a corner.
+    function _clear(uint256 a, uint256 b, uint256 d2) private view returns (bool) {
+        uint256 k = 1;
+        while (k * k * 19600 < d2) k++; // k = ceil(len / 140cm); len <= MAX_GAP_STEPS * MAX_STEP_CM + SPAWN_RADIUS_CM
+        if (k == 1) return true;
+        int256 ax = int256(a & 0xFFFF);
+        int256 ay = int256(a >> 16);
+        int256 dx = int256(b & 0xFFFF) - ax;
+        int256 dy = int256(b >> 16) - ay;
+        int256 kk = int256(k);
+        for (int256 i = 1; i < kk; i++) {
+            if (_solid(uint256(ax + (dx * i) / kk), uint256(ay + (dy * i) / kk))) return false;
+        }
+        return true;
     }
 
     function _dist2(uint256 a, uint256 b) private pure returns (uint256) {
@@ -650,8 +730,10 @@ contract Hollow {
 
     // ================================================================ views for clients
 
-    function getWalls() external view returns (uint256[16] memory) {
-        return walls;
+    function getWalls() external view returns (uint256[16] memory w) {
+        for (uint256 i = 0; i < 16; i++) {
+            w[i] = _wallWord(i);
+        }
     }
 
     function getSouls(uint256 id)
@@ -659,7 +741,7 @@ contract Hollow {
         view
         returns (address[] memory addrs, bytes16[] memory soulNames, uint64[] memory hollowSince, uint32[] memory escapedRel)
     {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         uint256 c = d.n.nSouls;
         addrs = new address[](c);
         soulNames = new bytes16[](c);
@@ -675,23 +757,23 @@ contract Hollow {
     }
 
     function nights(uint256 id) external view returns (Night memory) {
-        return nightData[id].n;
+        return _night(id).n;
     }
 
     function soulInfo(uint256 id, uint256 s) external view returns (Soul memory) {
-        return nightData[id].souls[s];
+        return _night(id).souls[s];
     }
 
     function bodyInfo(uint256 id, uint256 b) external view returns (Body memory) {
-        return nightData[id].bodies[b];
+        return _night(id).bodies[b];
     }
 
     function epochWord(uint256 id, uint256 e) external view returns (uint256) {
-        return nightData[id].epochs[e];
+        return _night(id).epochs[e];
     }
 
     function pocketsOf(uint256 id, uint256 b) external view returns (uint256) {
-        return nightData[id].pockets[b];
+        return _night(id).pockets[b];
     }
 
     /// @notice One call per poll: night header, current epoch word, every body's tail samples.
@@ -700,7 +782,7 @@ contract Hollow {
         view
         returns (Night memory night, uint256 epochWordNow, uint256 blockNumber, Body[] memory bodyList, uint256[] memory tails)
     {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         night = d.n;
         epochWordNow = d.epochs[night.epoch];
         blockNumber = block.number;
@@ -712,7 +794,7 @@ contract Hollow {
             Body storage b = d.bodies[i];
             bodyList[i] = b;
             uint256 nS = b.nSamples;
-            uint256[160] storage store = sampleStore[(id << 3) | i];
+            uint256[128] storage store = _samples(id, i);
             for (uint256 t = 0; t < tail && t < nS; t++) {
                 uint256 index = nS - 1 - t;
                 uint256 word = store[index >> 3];
@@ -723,7 +805,7 @@ contract Hollow {
 
     /// @notice Epoch words from `from` up to the current epoch (inclusive).
     function getEpochs(uint256 id, uint256 from) external view returns (uint256[] memory out) {
-        NightData storage d = nightData[id];
+        NightData storage d = _night(id);
         uint256 cur = d.n.epoch;
         if (from > cur) return new uint256[](0);
         out = new uint256[](cur - from + 1);
@@ -734,7 +816,7 @@ contract Hollow {
 
     /// @notice Raw packed sample slots for replays.
     function getSampleSlots(uint256 id, uint8 body, uint256 fromSlot, uint256 count) external view returns (uint256[] memory out) {
-        uint256[160] storage store = sampleStore[(id << 3) | body];
+        uint256[128] storage store = _samples(id, body);
         out = new uint256[](count);
         for (uint256 k = 0; k < count && fromSlot + k < SAMPLE_SLOTS; k++) {
             out[k] = store[fromSlot + k];

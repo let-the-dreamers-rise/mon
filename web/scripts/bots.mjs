@@ -52,6 +52,17 @@ const accounts = Array.from({ length: COUNT }, (_, i) => {
 const nonces = new Map();
 const FEES = { maxFeePerGas: 130_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
 const GAS = { record: 120_000n, sync: 140_000n, turn: 160_000n, collectFuse: 160_000n, escape: 160_000n, join: 140_000n, createNight: 120_000n, start: 260_000n, setName: 60_000n, buy: 170_000n, use: 110_000n };
+// mirrors recordGas() in src/chain/night.ts
+const RG = { base: 57_000, perSample: 2_500, newSlot: 22_500, first: 40_000, shiftBase: 30_000, shiftPerSoul: 4_000, voice: 4_000 };
+function recordGas(count, first, nSamples, shiftDue, voice, nSouls) {
+  const last = first + count - 1;
+  const lastWritten = nSamples > 0 ? (nSamples - 1) >> 3 : -1;
+  const fresh = Math.max(0, (last >> 3) - Math.max(lastWritten, (first >> 3) - 1));
+  let g = RG.base + RG.perSample * count + RG.newSlot * fresh + (nSamples === 0 ? RG.first : 0);
+  if (shiftDue) g += RG.shiftBase + RG.shiftPerSoul * nSouls;
+  if (voice) g += RG.voice;
+  return BigInt(Math.ceil(g * 1.08));
+}
 let sentCount = 0;
 const lastSent = new Map();
 // ESTIMATE=1: eth_estimateGas every call, send with a 20% margin, print the distribution on exit
@@ -65,8 +76,9 @@ if (ESTIMATE) {
       console.log(`gas ${k.padEnd(26)} n=${String(u.length).padStart(4)}  min ${u[0]}  p50 ${pct(0.5)}  p95 ${pct(0.95)}  max ${u[u.length - 1]}`);
     }
   };
-  process.on('SIGTERM', () => (report(), process.exit(0)));
-  process.on('SIGINT', () => (report(), process.exit(0)));
+  process.on('exit', report);
+  process.on('SIGTERM', () => process.exit(0));
+  process.on('SIGINT', () => process.exit(0));
 }
 async function send(account, fn, fnArgs, extra = {}) {
   const data = encodeFunctionData({ abi, functionName: fn, args: fnArgs });
@@ -317,7 +329,8 @@ for (;;) {
         bot.body = myBody;
         bot.pos = unpack(posAt(myBody, (e - start()) / SAMPLE));
         bot.route = [];
-        bot.next = Math.ceil((e - start()) / SAMPLE);
+        // like the browser client: let the previous wearer's last samples land first (SWAP_SETTLE)
+        bot.next = Math.ceil((e - start()) / SAMPLE) + (ei > 0 ? 3 : 0);
       }
     }
     if (bot.body < 0 || gone(bot.body)) continue;
@@ -397,7 +410,7 @@ for (;;) {
     const nS = Number(bodies[bot.body]?.nSamples ?? 0);
     const ready = bot.pending.filter((p) => p.body === bot.body && start() + p.index * SAMPLE <= chainBlock + 1 && p.index >= nS);
     bot.pending = bot.pending.filter((p) => p.body === bot.body && p.index >= nS && start() + p.index * SAMPLE + LATE > chainBlock + 3);
-    if (ready.length >= BATCH || (ready.length && Date.now() - bot.lastSend > 1600)) {
+    if (ready.length >= BATCH || (ready.length && chainBlock - (start() + ready[0].index * SAMPLE) >= 8 && Date.now() - bot.lastSend > 300)) {
       const run = [];
       for (const p of ready) {
         if (run.length && p.index !== run[run.length - 1].index + 1) break;
@@ -413,8 +426,8 @@ for (;;) {
       bot.pending = bot.pending.filter((p) => !run.includes(p));
       bot.lastSend = Date.now();
       const newSlot = run.some((p) => p.index % 8 === 0) || (run[0].index >> 3) !== (nS >> 3);
-      const shiftDue = chainBlock + 1 >= Number(h.nextShift);
-      void send(bot.acct, 'record', [nightId, bot.soul, bot.body, run[0].index, packed, run.length, voice], { gas: process.env.RECORD_GAS ? BigInt(process.env.RECORD_GAS) : 78_000n + (newSlot ? 24_000n : 0n) + (shiftDue ? 85_000n : 0n) + (voice ? 6_000n : 0n), tag: `${run.length}${newSlot ? '+slot' : ''}${shiftDue ? '+shift' : ''}${voice ? '+voice' : ''}${nS === 0 ? '+first' : ''}` });
+      const shiftDue = chainBlock + 4 >= Number(h.nextShift);
+      void send(bot.acct, 'record', [nightId, bot.soul, bot.body, run[0].index, packed, run.length, voice], { gas: process.env.RECORD_GAS ? BigInt(process.env.RECORD_GAS) : recordGas(run.length, run[0].index, nS, shiftDue, !!voice, Number(h.nSouls)), tag: `${run.length}${newSlot ? '+slot' : ''}${shiftDue ? '+shift' : ''}${voice ? '+voice' : ''}${nS === 0 ? '+first' : ''}` });
     }
 
     // shopping: a flare from the 24/7 mart, lit once inside a dark landmark
@@ -425,7 +438,7 @@ for (;;) {
         if (!v || d2(unpack(v), unpack(objective(4))) > 220 ** 2) continue;
         bot.bought = true;
         bot.route = [];
-        void send(bot.acct, 'buy', [nightId, epochAt(start() + i * SAMPLE), bot.body, i, 1], { value: 8_000_000_000_000_000n });
+        void send(bot.acct, 'buy', [nightId, bot.soul, epochAt(start() + i * SAMPLE), bot.body, i, 1], { value: 8_000_000_000_000_000n, gas: 140_000n });
         console.log(`a bot bought a flare (body ${bot.body})`);
         break;
       }
@@ -434,7 +447,7 @@ for (;;) {
       const t = tileAt(Math.floor(bot.pos.x / CELL), Math.floor(bot.pos.y / CELL));
       if (t === 'A' || t === 'H' || t === 'S') {
         bot.flareUsed = true;
-        void send(bot.acct, 'use', [nightId, bot.body, 1]);
+        void send(bot.acct, 'use', [nightId, bot.soul, bot.body, 1]);
         console.log(`a bot lit a flare in ${t === 'A' ? 'the Archive' : t === 'H' ? 'the hospital' : 'the station'}`);
       }
     }

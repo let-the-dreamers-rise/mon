@@ -166,7 +166,7 @@ export const hollowAbi = [
   },
   {
     "type": "function",
-    "name": "MAX_ITEM_STACK",
+    "name": "MAX_GAP_STEPS",
     "inputs": [],
     "outputs": [
       {
@@ -179,7 +179,7 @@ export const hollowAbi = [
   },
   {
     "type": "function",
-    "name": "MAX_SCAN",
+    "name": "MAX_ITEM_STACK",
     "inputs": [],
     "outputs": [
       {
@@ -498,6 +498,11 @@ export const hollowAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "soul",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
         "name": "epoch",
         "type": "uint32",
         "internalType": "uint32"
@@ -529,10 +534,39 @@ export const hollowAbi = [
         "name": "id",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "soul",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimable",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "soul",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -749,7 +783,7 @@ export const hollowAbi = [
     "inputs": [],
     "outputs": [
       {
-        "name": "",
+        "name": "w",
         "type": "uint256[16]",
         "internalType": "uint256[16]"
       }
@@ -924,6 +958,11 @@ export const hollowAbi = [
             "name": "rolesSet",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "potClaimed",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -972,7 +1011,7 @@ export const hollowAbi = [
     "name": "pot",
     "inputs": [
       {
-        "name": "",
+        "name": "id",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -982,30 +1021,6 @@ export const hollowAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "potClaimed",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -1048,24 +1063,6 @@ export const hollowAbi = [
         "name": "voice",
         "type": "uint8",
         "internalType": "uint8"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "rollOver",
-    "inputs": [
-      {
-        "name": "id",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "toNight",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -1174,6 +1171,11 @@ export const hollowAbi = [
             "name": "rolesSet",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "potClaimed",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       },
@@ -1397,6 +1399,11 @@ export const hollowAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "soul",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
         "name": "body",
         "type": "uint8",
         "internalType": "uint8"
@@ -1409,25 +1416,6 @@ export const hollowAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "walls",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -1631,31 +1619,6 @@ export const hollowAbi = [
         "type": "uint8",
         "indexed": false,
         "internalType": "uint8"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PotRolledOver",
-    "inputs": [
-      {
-        "name": "fromNight",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "toNight",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
       },
       {
         "name": "amount",

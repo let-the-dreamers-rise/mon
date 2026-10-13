@@ -1,5 +1,6 @@
 import {
   createPublicClient,
+  decodeErrorResult,
   encodeFunctionData,
   fallback,
   formatEther,
@@ -87,14 +88,37 @@ export class Burner {
     this.nonce = null;
   }
 
-  /** Encode, sign and broadcast a Hollow call. Calls are serialized so nonces stay ordered. */
-  call(fn: FnName | string, args: readonly unknown[], opts: { value?: bigint; gas?: bigint } = {}): Promise<Hex | null> {
+  /**
+   * Encode, sign and broadcast a Hollow call. Calls are serialized so nonces stay ordered.
+   *
+   * Every call except record() is simulated first: a call that would revert is not sent at all
+   * (on Monad a revert still pays the whole gas limit), and the limit is the estimate plus a margin
+   * instead of a guess. record() is hot and sizes its own limit (see recordGas).
+   */
+  async call(fn: FnName | string, args: readonly unknown[], opts: { value?: bigint; gas?: bigint } = {}): Promise<Hex | null> {
+    const data = encodeFunctionData({ abi: hollowAbi, functionName: fn as never, args: args as never });
+    let gas = opts.gas;
+    if (gas === undefined) {
+      try {
+        const est = await publicClient.estimateGas({ account: this.address, to: NET.hollow, data, value: opts.value ?? 0n });
+        // margin: a shift may become due between the estimate and inclusion (_sync then does more)
+        gas = (est * 125n) / 100n + 15_000n;
+      } catch (err) {
+        if (isRevert(err)) {
+          this.onError?.(String(fn), err);
+          return null;
+        }
+        gas = GAS[fn as FnName] ?? 200_000n;
+      }
+    }
+    return this.send(String(fn), data, gas, opts.value ?? 0n);
+  }
+
+  private send(fn: string, data: Hex, gas: bigint, value: bigint): Promise<Hex | null> {
     const run = async (): Promise<Hex | null> => {
-      const data = encodeFunctionData({ abi: hollowAbi, functionName: fn as never, args: args as never });
-      const gas = opts.gas ?? GAS[fn as FnName] ?? 200_000n;
       // Monad reserve balance: an account under 10 MON may only send value if it sent nothing in
       // the previous 3 blocks, so open a quiet window first (movement txs queue up behind this).
-      if ((opts.value ?? 0n) > 0n) {
+      if (value > 0n) {
         const wait = 2300 - (performance.now() - this.lastSentAt);
         if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       }
@@ -107,22 +131,57 @@ export class Burner {
           data,
           gas,
           nonce,
-          value: opts.value ?? 0n,
+          value,
           maxFeePerGas: MAX_FEE,
           maxPriorityFeePerGas: PRIORITY_FEE,
         });
-        const hash = (await publicClient.request({ method: 'eth_sendRawTransaction', params: [raw] })) as Hex;
+        const hash = await publicClient.request({ method: 'eth_sendRawTransaction', params: [raw] });
+        // the RPC is not trusted: whatever it returns ends up in links and the DOM
+        if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('RPC returned a malformed transaction hash');
         this.lastSentAt = performance.now();
-        const tx = { hash, fn: String(fn), at: performance.now() };
+        const tx = { hash: hash as Hex, fn, at: performance.now() };
         this.sent.push(tx);
         if (this.sent.length > 400) this.sent.splice(0, 100);
         this.onSent?.(tx);
-        return hash;
+        return hash as Hex;
       } catch (err) {
-        const msg = String((err as Error)?.message ?? err);
         this.resyncNonce(); // the failed tx may have consumed our local nonce
-        void msg;
-        this.onError?.(String(fn), err);
+        this.onError?.(fn, err);
+        return null;
+      }
+    };
+    const p = this.sending.then(run, run);
+    this.sending = p;
+    return p;
+  }
+
+  /** Send everything this session wallet holds (minus the transfer's own cost) back to `to`. */
+  async sweep(to: Hex): Promise<Hex | null> {
+    const run = async (): Promise<Hex | null> => {
+      const bal = await this.balance();
+      const fee = 21_000n * MAX_FEE;
+      if (bal <= fee) return null;
+      const wait = 2300 - (performance.now() - this.lastSentAt);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      try {
+        const nonce = await this.nextNonce();
+        const raw = await this.account.signTransaction({
+          chainId: NET.chainId,
+          type: 'eip1559',
+          to,
+          gas: 21_000n,
+          nonce,
+          value: bal - fee,
+          maxFeePerGas: MAX_FEE,
+          maxPriorityFeePerGas: PRIORITY_FEE,
+        });
+        const hash = await publicClient.request({ method: 'eth_sendRawTransaction', params: [raw] });
+        if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('RPC returned a malformed transaction hash');
+        this.lastSentAt = performance.now();
+        return hash as Hex;
+      } catch (err) {
+        this.resyncNonce();
+        this.onError?.('sweep', err);
         return null;
       }
     };
@@ -132,12 +191,53 @@ export class Burner {
   }
 
   async callAndWait(fn: FnName | string, args: readonly unknown[], opts: { value?: bigint; gas?: bigint } = {}) {
-    const hash = await this.call(fn, args, opts);
-    if (!hash) throw new Error(`${fn} could not be sent`);
+    let reason = '';
+    const prev = this.onError;
+    this.onError = (f, err) => {
+      reason = explainError(err);
+      prev?.(f, err);
+    };
+    const hash = await this.call(fn, args, opts).finally(() => (this.onError = prev));
+    if (!hash) throw new Error(`${fn}: ${reason || 'could not be sent'}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash, pollingInterval: 300, timeout: 30_000 });
     if (receipt.status !== 'success') throw new Error(`${fn} reverted`);
     return receipt;
   }
+}
+
+/** The player's injected wallet address (one popup the first time). */
+export async function connectInjected(): Promise<Hex> {
+  const eth = (window as unknown as { ethereum?: { request: (a: { method: string }) => Promise<unknown> } }).ethereum;
+  if (!eth) throw new Error('No browser wallet found.');
+  const [a] = (await eth.request({ method: 'eth_requestAccounts' })) as string[];
+  if (!a || !/^0x[0-9a-fA-F]{40}$/.test(a)) throw new Error('No account selected.');
+  return a as Hex;
+}
+
+/** A readable reason for a failed call: the contract's custom error name when there is one. */
+export function explainError(err: unknown): string {
+  let e: unknown = err;
+  for (let depth = 0; e && depth < 6; depth++) {
+    const data = (e as { data?: unknown }).data;
+    const hex = typeof data === 'string' ? data : (data as { data?: unknown })?.data;
+    if (typeof hex === 'string' && /^0x[0-9a-fA-F]{8}/.test(hex)) {
+      try {
+        return decodeErrorResult({ abi: hollowAbi, data: hex as Hex }).errorName;
+      } catch {
+        /* not one of ours */
+      }
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  const m = err as { shortMessage?: string; message?: string };
+  return String(m?.shortMessage ?? m?.message ?? err);
+}
+
+/** true if a call failed because the contract would revert (not because the RPC is down) */
+function isRevert(err: unknown): boolean {
+  const e = err as { name?: string; shortMessage?: string; message?: string; cause?: unknown };
+  const text = `${e?.name ?? ''} ${e?.shortMessage ?? ''} ${e?.message ?? ''}`;
+  return /revert|execution reverted|ContractFunctionRevertedError|CallExecutionError/i.test(text);
 }
 
 /** Ask an injected wallet (MetaMask etc.) to top up the burner. One popup, then none. */

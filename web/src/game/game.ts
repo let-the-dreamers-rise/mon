@@ -234,6 +234,17 @@ export class Game {
       const changed = this.pilot.tick(now, pos, this.voiceQueued);
       this.voiceQueued = 0;
       if (changed) this.onSwap(n, this.pilot.body, est);
+      else if (this.pilot.pull) {
+        // the chain did not accept where this body went: it is where the chain says it is
+        const to = this.pilot.pull;
+        const far = Math.hypot(to.x / 100 - this.player.position.x, to.y / 100 - this.player.position.z) > 1.5;
+        this.player.teleport(to.x / 100, to.y / 100);
+        if (far) {
+          this.fx.staticBurst = Math.max(this.fx.staticBurst, 0.6);
+          this.hud.feed('SIGNAL DRIFT · RESYNCED TO CHAIN');
+        }
+      }
+      this.pilot.pull = null;
       this.player.update(dt, { speedScale: (hollow ? 1.08 : 1) * this.town.speedScale });
       if (hollow || this.town.infiniteStamina) this.player.stamina = 1;
     } else if (this.mode === 'play') {

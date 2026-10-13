@@ -2,7 +2,7 @@ import { formatEther, parseEther } from 'viem';
 import { IS_LOCAL, NET, TORMENTS, type Hex } from './config';
 import { hollowAbi } from './chain/abi';
 import { NightState, encodeName, short } from './chain/night';
-import { Burner, fundFromInjected, injectedAddress, publicClient } from './chain/wallet';
+import { Burner, connectInjected, explainError, fundFromInjected, injectedAddress, publicClient } from './chain/wallet';
 import { Game } from './game/game';
 import { Psych } from './game/psych';
 
@@ -24,7 +24,7 @@ function toast(msg: string, ms = 3500) {
 }
 
 wallet.onError = (fn, err) => {
-  const msg = String((err as Error)?.message ?? err);
+  const msg = explainError(err);
   if (/insufficient funds/i.test(msg)) toast('Out of MON for gas — top up the session wallet.');
   else if (!['record', 'turn', 'collectFuse', 'escape', 'sync'].includes(fn)) toast(`${fn} failed: ${msg.slice(0, 120)}`);
 };
@@ -64,6 +64,18 @@ $('fund').onclick = async () => {
   }
 };
 
+$('sweep').onclick = async () => {
+  try {
+    const to = await connectInjected();
+    if (!confirm(`Send everything in this session wallet to ${to}?`)) return;
+    const hash = await wallet.sweep(to);
+    toast(hash ? 'withdrawn to your wallet' : 'nothing to withdraw');
+    setTimeout(refreshBalance, 2500);
+  } catch (e) {
+    toast(String((e as Error).message ?? e).slice(0, 140));
+  }
+};
+
 async function saveName() {
   const name = ($('name') as HTMLInputElement).value.trim();
   if (!name) return;
@@ -73,7 +85,7 @@ async function saveName() {
     /* ignore */
   }
   const current = (await publicClient.readContract({ address: NET.hollow, abi: hollowAbi, functionName: 'names', args: [wallet.address] })) as Hex;
-  if (current !== encodeName(name)) void wallet.call('setName', [encodeName(name)], { gas: 60_000n });
+  if (current !== encodeName(name)) void wallet.call('setName', [encodeName(name)]);
 }
 
 $('btn-play').onclick = async () => {
@@ -281,11 +293,27 @@ game.onOver = ({ escaped, hollow, txs, night }) => {
       .reverse()
       .map((t) => (NET.explorer ? `<a href="${NET.explorer}/tx/${t.hash}" target="_blank" rel="noopener">${t.fn} ${t.hash}</a>` : `<span>${t.fn} ${t.hash}</span>`))
       .join('');
-  $('btn-claim').classList.toggle('hidden', !escaped);
+  // the winners split the pot: whoever escaped, or, if nobody did, everyone the Hollow wore
+  $('btn-claim').classList.add('hidden');
+  const soul = game.mySoul;
+  if (mode === 'play' && soul >= 0) {
+    const check = async () => {
+      const amount = (await publicClient
+        .readContract({ address: NET.hollow, abi: hollowAbi, functionName: 'claimable', args: [BigInt(night.id), soul] })
+        .catch(() => 0n)) as bigint;
+      if (amount > 0n) {
+        $('btn-claim').textContent = `CLAIM ${Number(formatEther(amount)).toFixed(3)} MON`;
+        $('btn-claim').classList.remove('hidden');
+      }
+    };
+    void check();
+    setTimeout(() => void check(), 4000); // the night may still be closing on chain
+  }
   $('btn-claim').onclick = async () => {
     try {
-      await wallet.callAndWait('claimPot', [night.id]);
-      toast('the watchers paid for your survival');
+      await wallet.callAndWait('claimPot', [night.id, soul]);
+      $('btn-claim').classList.add('hidden');
+      toast(escaped ? 'the watchers paid for your survival' : 'nobody got out. the Hollow keeps what was paid.');
     } catch (e) {
       toast(String((e as Error).message).slice(0, 140));
     }

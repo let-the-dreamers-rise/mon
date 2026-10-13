@@ -1,10 +1,16 @@
 import { encodeAbiParameters, hexToBigInt, keccak256, parseAbiItem, type Log } from 'viem';
 import {
+  CELL_CM,
+  GRID,
   LATE_BLOCKS,
+  MAX_GAP_STEPS,
+  MAX_STEP_CM,
   NET,
   NIGHT_BLOCKS,
   OBJECTIVE_RADIUS_CM,
   SAMPLE_BLOCKS,
+  SHOP_RADIUS_CM,
+  SPAWN_RADIUS_CM,
   SHIFT_GRACE_BLOCKS,
   SHIFT_MIN,
   SHIFT_RANGE,
@@ -87,6 +93,30 @@ const spawnsWord = BigInt(map.spawns);
 const objectivesWord = BigInt(map.objectives);
 export const spawnOf = (body: number) => Number((spawnsWord >> BigInt(32 * body)) & 0xffffffffn);
 export const objective = (i: number) => Number((objectivesWord >> BigInt(32 * i)) & 0xffffffffn);
+
+// the contract's wall rules, mirrored exactly, so the client never sends a move the chain would reject
+const wallWords = (map.walls as string[]).map((w) => BigInt(w));
+const WORLD_CM = GRID * CELL_CM;
+export function solidCm(x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= WORLD_CM || y >= WORLD_CM) return true;
+  const bit = Math.floor(y / CELL_CM) * GRID + Math.floor(x / CELL_CM);
+  return ((wallWords[bit >> 8] >> BigInt(bit & 255)) & 1n) === 1n;
+}
+/** Hollow._clear: the hop a -> b is probed every <= 1.4 m (same integer maths as the contract) */
+export function clearHop(a: number, b: number): boolean {
+  const d2v = dist2(a, b);
+  let k = 1;
+  while (k * k * 19600 < d2v) k++;
+  if (k === 1) return true;
+  const A = unpack(a);
+  const B = unpack(b);
+  const dx = B.x - A.x;
+  const dy = B.y - A.y;
+  // Solidity's signed division truncates toward zero
+  const div = (n: number) => Math.trunc(n / k);
+  for (let i = 1; i < k; i++) if (solidCm(A.x + div(dx * i), A.y + div(dy * i))) return false;
+  return true;
+}
 
 const TAIL = 16;
 const ZERO32 = ('0x' + '0'.repeat(64)) as Hex;
@@ -555,7 +585,19 @@ export function encodeName(name: string): Hex {
 
 export const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-/** Batches my own body's samples and submits them on time, switching bodies on shifts. */
+/** samples to skip after waking up in a new body: the previous wearer's last moves may still be landing */
+const SWAP_SETTLE = 3;
+/** below this a sample counts as standing still, and standing still is free (a gap means "stood still") */
+const IDLE_CM = 6;
+
+/**
+ * Batches my own body's samples and submits them on time, switching bodies on shifts.
+ *
+ * It only ever produces samples the contract will accept: each one is clamped to the reach the
+ * contract allows from the body's last sample (including the gap cap) and must pass the same wall
+ * probes. If the player outran what the chain can accept (a lost transaction, a stale body after a
+ * shift), `pull` holds the position the chain agrees with and the game drags the player back to it.
+ */
 export class Pilot {
   private pending: { index: number; pos: number; voice: number; body: number }[] = [];
   private nextIndex = -1;
@@ -563,10 +605,28 @@ export class Pilot {
   epochIndex = -1;
   private lastSend = 0;
   sentSamples = 0;
+  skippedSamples = 0;
   lastConfirmLatencyMs = 0;
   private sendTimes = new Map<number, number>();
+  /** the last sample queued for my body (index -1 = its spawn) */
+  private tail: { index: number; pos: number } | null = null;
+  private sentTo = -1;
+  /** where the chain says I am, when I got ahead of it */
+  pull: Vec | null = null;
+  onDesync?: () => void;
 
   constructor(private night: NightState, private wallet: Burner, readonly soul: number) {}
+
+  private chainTail(body: number) {
+    const b = this.night.bodies[body];
+    return b && b.nSamples > 0 ? { index: b.nSamples - 1, pos: b.lastPos } : { index: -1, pos: spawnOf(body) };
+  }
+
+  private nearObjective(p: number) {
+    for (let i = 0; i < 4; i++) if (dist2(p, objective(i)) <= (OBJECTIVE_RADIUS_CM + 250) ** 2) return true;
+    for (let i = 4; i < 7; i++) if (dist2(p, objective(i)) <= (SHOP_RADIUS_CM + 250) ** 2) return true;
+    return false;
+  }
 
   /** called each frame with my current position (cm); returns true if the body changed */
   tick(now: number, pos: Vec, voice: number): boolean {
@@ -579,20 +639,56 @@ export class Pilot {
     let changed = false;
     if (e && e.index !== this.epochIndex) {
       const nb = e.assign.findIndex((s, b) => s === this.soul && b < h.nSouls);
-      // drop samples that now belong to a body I no longer drive
+      // drop samples that now belong to a body I no longer drive, and send my last moves in the old
+      // one right away: its new wearer waits SWAP_SETTLE samples before writing over them
       this.pending = this.pending.filter((p) => n.blockOfIndex(p.index) < e.start);
+      if (this.pending.length) this.flush(true);
       changed = nb !== this.body;
       this.epochIndex = e.index;
       this.body = nb;
-      this.nextIndex = Math.ceil(n.indexAtBlock(est));
+      this.nextIndex = Math.ceil(n.indexAtBlock(est)) + (changed && e.index > 0 ? SWAP_SETTLE : 0);
+      this.tail = null;
+      this.sentTo = -1;
     }
     if (this.body < 0 || n.bodyGone(this.body)) return changed;
     if (this.nextIndex < 0) this.nextIndex = Math.ceil(n.indexAtBlock(est));
+
+    // a batch that never landed (and now never can): the body is wherever the chain last saw it
+    const cb = n.bodies[this.body];
+    if (this.sentTo >= 0 && cb && cb.nSamples <= this.sentTo && n.chainBlock > n.blockOfIndex(this.sentTo) + LATE_BLOCKS + 8) {
+      this.sentTo = -1;
+      this.pending = this.pending.filter((p) => p.body !== this.body);
+      this.tail = this.chainTail(this.body);
+      this.pull = unpack(this.tail.pos);
+      this.onDesync?.();
+    }
+
     while (n.blockOfIndex(this.nextIndex) <= est) {
-      const p = pack(pos);
-      this.pending.push({ index: this.nextIndex, pos: p, voice: 0, body: this.body });
-      n.addLocalSample(this.body, this.nextIndex, p);
-      this.nextIndex++;
+      const idx = this.nextIndex++;
+      if (!this.tail) this.tail = this.chainTail(this.body);
+      const t = this.tail;
+      let p = pack(pos);
+      // the contract's reach from the last sample, with a margin for rounding and timing
+      const steps = Math.min(idx - t.index, MAX_GAP_STEPS);
+      const reach = ((t.index < 0 ? SPAWN_RADIUS_CM : 0) + MAX_STEP_CM * steps) * 0.9;
+      if (dist2(p, t.pos) > reach * reach || !clearHop(t.pos, p) || solidCm(unpack(p).x, unpack(p).y)) {
+        const a = unpack(t.pos);
+        const b = unpack(p);
+        const d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const k = Math.min(1, reach / d);
+        p = pack({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
+        if (!clearHop(t.pos, p) || solidCm(unpack(p).x, unpack(p).y)) p = t.pos;
+        this.pull = unpack(p);
+      }
+      const v = voice;
+      if (!v && dist2(p, t.pos) < IDLE_CM * IDLE_CM && t.index >= 0 && !this.nearObjective(p)) {
+        this.skippedSamples++;
+        continue;
+      }
+      this.pending.push({ index: idx, pos: p, voice: v, body: this.body });
+      voice = 0;
+      n.addLocalSample(this.body, idx, p);
+      this.tail = { index: idx, pos: p };
     }
     if (voice && this.pending.length) this.pending[this.pending.length - 1].voice = voice;
     this.flush(false, voice !== 0);
@@ -614,25 +710,29 @@ export class Pilot {
     if (!this.pending.length) return;
     const now = performance.now();
     const body = this.pending[0].body;
-    // only samples whose block the chain has reached can be accepted
     // samples the contract would reject as too late are dropped (a gap just means "stood still")
     this.pending = this.pending.filter((p) => n.blockOfIndex(p.index) + LATE_BLOCKS > n.chainBlock + 3);
+    // only samples whose block the chain has reached can be accepted
     const ready = this.pending.filter((p) => n.blockOfIndex(p.index) <= n.chainBlock + 1);
     if (!ready.length) return;
-    if (!force && !urgent && ready.length < 3 && now - this.lastSend < 1500) return;
+    // fewer, fuller transactions: wait for 4 samples or until the oldest is 8 blocks old (the
+    // contract accepts 16), unless a voice line or a proof needs it on chain now
+    const oldest = n.blockOfIndex(ready[0].index);
+    if (!force && !urgent && ready.length < 4 && n.chainBlock - oldest < 8 && now - this.lastSend > 300) return;
+    if (!force && !urgent && now - this.lastSend < 300) return;
     const nS = n.bodies[body]?.nSamples ?? 0;
     const batch = ready.filter((p) => p.body === body && p.index >= nS).slice(0, 8);
-    // keep only a contiguous-in-time run inside one epoch
     if (!batch.length) {
       this.pending = this.pending.filter((p) => !(p.body === body && p.index < nS));
       return;
     }
+    // keep a run inside one epoch
     const epoch = n.epochAt(n.blockOfIndex(batch[0].index));
     const run = batch.filter((p) => n.epochAt(n.blockOfIndex(p.index)) === epoch);
     const first = run[0].index;
     let packed = 0n;
     let voice = 0;
-    // indices must be consecutive within one call
+    // one call writes consecutive indices; an idle gap ends the call (the next one starts after it)
     const consecutive: typeof run = [];
     for (const p of run) {
       if (p.index !== first + consecutive.length) break;
@@ -643,11 +743,31 @@ export class Pilot {
     this.pending = this.pending.filter((p) => !consecutive.includes(p) && !(p.body === body && p.index < first));
     this.lastSend = now;
     this.sentSamples += consecutive.length;
-    this.sendTimes.set(consecutive[consecutive.length - 1].index, now);
-    // Monad charges the gas limit, so size it to what this call will actually do
-    const newSlot = consecutive.some((p) => p.index % 8 === 0) || (consecutive[0].index >> 3) !== ((n.bodies[body]?.nSamples ?? 0) >> 3);
-    const shiftDue = !!n.header && n.header.nextShift > 0 && n.chainBlock + 1 >= n.header.nextShift;
-    const gas = 78_000n + (newSlot ? 24_000n : 0n) + (shiftDue ? 85_000n : 0n) + (voice ? 6_000n : 0n);
+    const lastIdx = consecutive[consecutive.length - 1].index;
+    this.sendTimes.set(lastIdx, now);
+    this.sentTo = Math.max(this.sentTo, lastIdx);
+    // the tx lands 1-3 blocks after this; if a shift is due by then this call applies it
+    const shiftDue = !!n.header && n.header.nextShift > 0 && n.chainBlock + 4 >= n.header.nextShift;
+    const gas = recordGas(consecutive.length, first, nS, shiftDue, voice !== 0, n.header?.nSouls ?? 8);
     void this.wallet.call('record', [n.id, this.soul, body, first, packed, consecutive.length, voice], { gas });
   }
 }
+
+/**
+ * Gas limit for a record() call. Monad charges the limit, not what was used, so it is sized to what
+ * this call will actually do (calibrated with eth_estimateGas on Monad testnet; see RECORD_GAS).
+ */
+export function recordGas(count: number, first: number, nSamples: number, shiftDue: boolean, voice: boolean, nSouls: number): bigint {
+  // storage slots this call writes for the first time (8 samples per slot)
+  const last = first + count - 1;
+  const lastWritten = nSamples > 0 ? (nSamples - 1) >> 3 : -1;
+  const fresh = Math.max(0, (last >> 3) - Math.max(lastWritten, (first >> 3) - 1));
+  let g = RECORD_GAS.base + RECORD_GAS.perSample * count + RECORD_GAS.newSlot * fresh + (nSamples === 0 ? RECORD_GAS.first : 0);
+  if (shiftDue) g += RECORD_GAS.shiftBase + RECORD_GAS.shiftPerSoul * nSouls;
+  if (voice) g += RECORD_GAS.voice;
+  return BigInt(Math.ceil(g * 1.08));
+}
+
+/** measured with eth_estimateGas on Monad testnet (243 calls): 4 samples 65.4k p50, a new slot +17.6k,
+ *  a body's first batch ~120k, a shift +~40k with 3 souls */
+export const RECORD_GAS = { base: 57_000, perSample: 2_500, newSlot: 22_500, first: 40_000, shiftBase: 30_000, shiftPerSoul: 4_000, voice: 4_000 };

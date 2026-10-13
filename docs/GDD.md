@@ -30,13 +30,14 @@
 | --- | --- | --- |
 | Lobby | until host starts (max ~3 min) | 1–8 souls join a night. Bots can fill seats. |
 | Countdown | 20 blocks (~6 s) | "The lights go out." Intro narration. |
-| Night | up to 2,400 blocks (~12 min) | Explore Halden, collect 3 fuses, power the bridge gate, escape. |
-| Dawn | — | Night ends when no living souls remain in play or time runs out. Survivors split the pot. |
+| Night | up to 2,000 blocks (~10 min) | Explore Halden, collect 3 fuses, power the bridge gate, escape. |
+| Dawn | — | Night ends when no living souls remain in play or time runs out (2,000 blocks, ~10 min). Escapees split the pot; if nobody escaped, the Hollow keeps it. |
 
 **Roles.** At start, 1 random soul is Hollow (2 if ≥ 6 souls). Everyone else is living. Nobody is told who the Hollow is, except the Hollow.
 
 **Win conditions.**
 - Living: reach the powered bridge gate in any body. Each soul that escapes wins and claims an equal share of the pot.
+- Hollow: if nobody escapes, every soul that ended the night Hollow (the original and everyone it turned) splits the pot. Near dawn, giving in starts to look tempting.
 - Hollow: turn every living soul before dawn.
 
 ## 4. Shifts (the core mechanic)
@@ -74,7 +75,7 @@ Streets are wide (6–9 m); alleys 3 m. Buildings render as tall dark blocks wit
 
 ## 7. Shops & items (onchain)
 
-Shops are unmanned. Each has a counter terminal. You can buy only while your body's **recorded** position is within 2.5 m of the counter. Purchases are Monad transactions; prices go to the survivors' pot. Items go into the **body's** pockets (max 9 of each).
+Shops are unmanned. Each has a counter terminal. You can buy only while your body's **recorded** position is within 2.5 m of the counter. Purchases are Monad transactions; prices go to the night's pot. Items go into the **body's** pockets (max 9 of each).
 
 | Item | Shop | Price (MON) | Effect |
 | --- | --- | --- | --- |
@@ -124,4 +125,4 @@ Fisheye lens, scanlines, rolling bar, film grain, desaturated colour with a gree
 - Shifts: `keccak(blockhash(S−1), night, epoch)` seeds Sattolo's algorithm; next shift = S + 100 + seed % 150.
 - Proofs: `turn`, `collectFuse`, `escape`, `buy` are verified against recorded samples and the epoch's body→soul assignment.
 - Parallel-friendly storage: each body's samples live in their own slots, so different players' moves never touch the same storage and Monad can execute them in parallel.
-- Economy: watcher torments and shop purchases → `pot[night]`; escaped souls claim equal shares; if nobody escapes, the pot rolls over to a later night.
+- Economy: watcher torments and shop purchases → the night's pot; escaped souls claim equal shares; if nobody escapes, the souls that ended Hollow do. A lone soul with neither gets its own pot back. There is no other way out for MON.

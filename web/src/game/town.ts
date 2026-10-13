@@ -164,7 +164,7 @@ export class Town {
     const e = n.epochAt(n.blockOfIndex(idx));
     if (!e) return;
     this.buying = true;
-    const hash = await g.wallet.call('buy', [n.id, e.index, body, idx, item], { value: it.price });
+    const hash = await g.wallet.call('buy', [n.id, g.mySoul, e.index, body, idx, item], { value: it.price });
     this.buying = false;
     if (hash) {
       g.hud.subtitle(`${it.name.toLowerCase()} → this body's pockets`);
@@ -184,7 +184,7 @@ export class Town {
       g.hud.subtitle(`no ${ITEMS[item].name.toLowerCase()} in these pockets`);
       return;
     }
-    void g.wallet.call('use', [n.id, body, item]);
+    void g.wallet.call('use', [n.id, g.mySoul, body, item]);
     // optimistic: apply locally right away, everyone else sees it via the Used event
     n.pockets[body][item] -= 1;
     this.applyLocal(item);

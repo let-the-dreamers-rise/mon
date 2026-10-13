@@ -40,17 +40,23 @@ const local: Network = {
 
 export const NET: Network = IS_LOCAL ? local : testnet;
 
-/** gas limits per call (Monad charges the full limit, so keep them tight) */
+/**
+ * Fallback gas limits per call, keyed by contract function. Monad charges the full limit, so every
+ * call except record() is simulated first (eth_estimateGas) and sent with a small margin; these are
+ * only used if the estimate fails for a reason other than a revert. record() sizes its own limit.
+ */
 export const GAS = {
   record: 120_000n,
   sync: 140_000n,
   turn: 160_000n,
-  claim: 160_000n,
+  collectFuse: 160_000n,
+  escape: 160_000n,
+  claimPot: 120_000n,
   join: 140_000n,
-  create: 120_000n,
+  createNight: 120_000n,
   start: 260_000n,
   torment: 160_000n,
-  name: 60_000n,
+  setName: 60_000n,
   buy: 170_000n,
   use: 110_000n,
 } as const;
@@ -68,10 +74,12 @@ export const START_GRACE_BLOCKS = 30;
 export const SHIFT_GRACE_BLOCKS = 10;
 export const SHIFT_MIN = 100;
 export const SHIFT_RANGE = 150;
-export const NIGHT_BLOCKS = 2400;
+export const NIGHT_BLOCKS = 2000;
 export const TURN_RADIUS_CM = 120;
 export const OBJECTIVE_RADIUS_CM = 160;
 export const MAX_STEP_CM = 420;
+export const MAX_GAP_STEPS = LATE_BLOCKS / SAMPLE_BLOCKS;
+export const SPAWN_RADIUS_CM = 200;
 export const SHOP_RADIUS_CM = 250;
 
 export const ITEMS = [
