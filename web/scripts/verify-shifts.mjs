@@ -11,8 +11,8 @@ const read = (functionName, a) => client.readContract({ address: args.hollow, ab
 const id = BigInt(args.night ?? 1);
 
 const night = await read('nights', [id]);
-const nSouls = Number(night[2]);
-const goneMask = Number(night[5]);
+const nSouls = Number(night.nSouls);
+const goneMask = Number(night.goneMask);
 const words = await read('getEpochs', [id, 0n]);
 const parse = (w) => ({
   assign: Array.from({ length: 8 }, (_, b) => Number((w >> BigInt(4 * b)) & 0xfn)),

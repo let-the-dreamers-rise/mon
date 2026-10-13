@@ -16,7 +16,7 @@ contract Hollow {
 
     // ---------------------------------------------------------------- timing (in blocks, ~0.3s each)
     uint256 public constant SAMPLE_BLOCKS = 2; // one position sample per body every 2 blocks
-    uint256 public constant LATE_BLOCKS = 40; // samples must be submitted within ~12s
+    uint256 public constant LATE_BLOCKS = 16; // samples must be submitted within ~4.8s (limits retroactive moves)
     uint256 public constant COUNTDOWN_BLOCKS = 20; // after start() before the night begins
     uint256 public constant START_GRACE_BLOCKS = 30; // no turning in the first ~9s
     uint256 public constant SHIFT_GRACE_BLOCKS = 10; // no turning ~3s after each shift
@@ -78,6 +78,7 @@ contract Hollow {
         uint32 epoch;
         uint8 escapedCount;
         uint64 lastForcedShift;
+        bool rolesSet; // the Hollow is chosen from the hash of the block before startBlock
     }
 
     struct Soul {
@@ -94,22 +95,31 @@ contract Hollow {
         uint32 voiceIndex; // sample index the voice was spoken at
     }
 
+    /// @dev Monad prices storage by 128-slot page (first touch 8,100 gas, then 100), so everything a
+    ///      move touches lives together: a night's header, souls, bodies, pockets and epoch history
+    ///      are one contiguous record, and each body's samples are one contiguous array.
+    uint256 public constant MAX_EPOCHS = 40;
+    uint256 public constant SAMPLE_SLOTS = 160; // 1,280 samples per body > NIGHT_BLOCKS / SAMPLE_BLOCKS
+
+    struct NightData {
+        Night n; // 3 slots
+        Soul[8] souls; // 8 slots
+        Body[8] bodies; // 8 slots
+        uint256[8] pockets; // item counts per body, 16 bits per item. Pockets belong to bodies, not souls.
+        /// @dev epoch word: assign (body i -> soul, 4 bits each, low 32 bits) | epochStart (64 bits at
+        ///      offset 32) | in-play body mask (8 bits at offset 96)
+        uint256[40] epochs;
+    }
+
     uint256 public nightCount;
-    mapping(uint256 => Night) public nights;
-    mapping(uint256 => mapping(uint256 => Soul)) public souls;
+    mapping(uint256 => NightData) internal nightData;
+    /// @dev (night << 3 | body) => 8 packed samples per slot
+    mapping(uint256 => uint256[160]) internal sampleStore;
     mapping(uint256 => mapping(address => uint256)) public soulIndexPlus1;
-    mapping(uint256 => mapping(uint256 => Body)) public bodies;
-    /// @dev night => epoch => word: assign (body i -> soul, 4 bits each, low 32 bits) |
-    ///      epochStart (64 bits at offset 32) | in-play body mask (8 bits at offset 96)
-    mapping(uint256 => mapping(uint256 => uint256)) public epochs;
-    /// @dev night => (body << 32 | slotIndex) => 8 packed samples
-    mapping(uint256 => mapping(uint256 => uint256)) public samples;
     mapping(address => bytes16) public names;
-    /// @dev watcher fees collected per night, split between the souls that escape
+    /// @dev watcher fees and shop sales per night, split between the souls that escape
     mapping(uint256 => uint256) public pot;
     mapping(uint256 => mapping(uint256 => bool)) public potClaimed;
-    /// @dev night => body => item counts (16 bits per item). Pockets belong to bodies, not souls.
-    mapping(uint256 => mapping(uint256 => uint256)) public pockets;
 
     // ---------------------------------------------------------------- events
     event NightCreated(uint256 indexed night, address indexed host, uint64 lobbyEnd);
@@ -158,26 +168,29 @@ contract Hollow {
 
     function createNight() external returns (uint256 id) {
         id = ++nightCount;
-        Night storage n = nights[id];
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
         n.host = msg.sender;
         n.lobbyEnd = uint64(block.number + LOBBY_BLOCKS);
         emit NightCreated(id, msg.sender, n.lobbyEnd);
     }
 
     function join(uint256 id) external {
-        Night storage n = nights[id];
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
         if (n.host == address(0) || n.startBlock != 0 || block.number >= n.lobbyEnd) revert NotInLobby();
         if (n.nSouls >= MAX_SOULS) revert NightFull();
         if (soulIndexPlus1[id][msg.sender] != 0) revert AlreadyJoined();
         uint8 s = n.nSouls++;
-        souls[id][s].addr = msg.sender;
+        d.souls[s].addr = msg.sender;
         soulIndexPlus1[id][msg.sender] = uint256(s) + 1;
         emit Joined(id, msg.sender, s);
     }
 
     /// @notice The host can start early; anyone can start once the lobby window has passed.
     function start(uint256 id) external {
-        Night storage n = nights[id];
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
         if (n.host == address(0) || n.startBlock != 0) revert NotInLobby();
         if (msg.sender != n.host && block.number < n.lobbyEnd) revert NotInLobby();
         uint256 count = n.nSouls;
@@ -185,19 +198,11 @@ contract Hollow {
 
         uint64 startBlock = uint64(block.number + COUNTDOWN_BLOCKS);
         n.startBlock = startBlock;
-        uint256 seed = uint256(keccak256(abi.encode(blockhash(block.number - 1), id, "hollow")));
-
-        // choose the hidden Hollow(s)
-        uint256 hollows = count >= 6 ? 2 : (count >= 2 ? 1 : 0);
-        if (hollows > 0) {
-            uint256 h1 = seed % count;
-            souls[id][h1].hollowSince = startBlock;
-            if (hollows == 2) {
-                uint256 h2 = (h1 + 1 + (seed >> 8) % (count - 1)) % count;
-                souls[id][h2].hollowSince = startBlock;
-            }
-        }
-        n.living = uint8(count - hollows);
+        // Roles are NOT decided here: whoever calls start() could otherwise simulate the outcome and
+        // revert until they got the role they wanted. They are drawn from blockhash(startBlock - 1),
+        // a block that does not exist yet (see _assignRoles).
+        n.living = uint8(count);
+        uint256 seed = uint256(keccak256(abi.encode(blockhash(block.number - 1), id, "shift")));
 
         // epoch 0: every soul starts in its own body
         uint256 assign;
@@ -206,7 +211,7 @@ contract Hollow {
             assign |= i << (4 * i);
             mask |= 1 << i;
         }
-        epochs[id][0] = _packEpoch(assign, startBlock, mask);
+        d.epochs[0] = _packEpoch(assign, startBlock, mask);
         n.nextShift = uint64(startBlock + FIRST_SHIFT_MIN + (seed >> 16) % SHIFT_RANGE);
         emit NightStarted(id, startBlock);
     }
@@ -214,45 +219,46 @@ contract Hollow {
     // ================================================================ movement
 
     /// @notice Record up to 8 position samples for the body you currently control.
+    /// @param soul your soul index in this night (checked against msg.sender; saves a storage page)
     /// @param fromIndex first sample index (sample k is at block startBlock + 2k)
     /// @param packed samples, 32 bits each (x | y<<16), first sample in the low bits
     /// @param voice voice line id spoken at the last sample (0 = none)
-    function record(uint256 id, uint8 body, uint32 fromIndex, uint256 packed, uint8 count, uint8 voice) external {
-        Night storage n = nights[id];
+    function record(uint256 id, uint8 soul, uint8 body, uint32 fromIndex, uint256 packed, uint8 count, uint8 voice) external {
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
         uint256 startBlock = n.startBlock;
         if (startBlock == 0 || block.number < startBlock) revert NotStarted();
         if (_isOver(n)) revert NightOver();
-        _sync(id, n);
+        _sync(id, d);
 
-        uint256 s = soulIndexPlus1[id][msg.sender];
-        if (s == 0) revert NotASoul();
-        s -= 1;
+        if (soul >= n.nSouls || d.souls[soul].addr != msg.sender) revert NotASoul();
         if (count == 0 || count > 8 || body >= n.nSouls) revert BadSamples();
 
-        Body storage b = bodies[id][body];
+        Body storage b = d.bodies[body];
         if (b.goneRel != 0) revert NotYourBody();
         uint256 first = fromIndex;
         uint256 last = first + count - 1;
-        if (first < b.nSamples) revert BadSamples();
+        if (first < b.nSamples || last >= SAMPLE_SLOTS * 8) revert BadSamples();
         if (startBlock + last * SAMPLE_BLOCKS > block.number) revert BadSamples();
         if (startBlock + first * SAMPLE_BLOCKS + LATE_BLOCKS < block.number) revert TooLate();
 
         // the whole batch must sit inside one epoch in which msg.sender controls `body`
         {
-            uint256 e = _epochAt(id, n.epoch, startBlock + first * SAMPLE_BLOCKS);
+            uint256 e = _epochAt(d, n.epoch, startBlock + first * SAMPLE_BLOCKS);
             if (e < n.epoch) {
-                uint256 nextStart = (epochs[id][e + 1] >> 32) & type(uint64).max;
+                uint256 nextStart = (d.epochs[e + 1] >> 32) & type(uint64).max;
                 if (startBlock + last * SAMPLE_BLOCKS >= nextStart) revert BadSamples();
             }
-            if ((epochs[id][e] >> (4 * body)) & 0xF != s) revert NotYourBody();
+            if ((d.epochs[e] >> (4 * body)) & 0xF != soul) revert NotYourBody();
         }
 
         // samples are append-only; skipped indices mean "stood still" (a zero word marks a gap)
+        uint256[160] storage store = sampleStore[(id << 3) | body];
         uint256 prevIndex = b.nSamples; // index the previous position belongs to (+1)
         uint256 pos = prevIndex == 0 ? (spawns >> (32 * body)) & 0xFFFFFFFF : b.lastPos;
         uint256 idx = first;
-        uint256 slotKey = (uint256(body) << 32) | (idx >> 3);
-        uint256 word = samples[id][slotKey];
+        uint256 slot = idx >> 3;
+        uint256 word = store[slot];
 
         for (uint256 k = 0; k < count; k++) {
             uint256 p = (packed >> (32 * k)) & 0xFFFFFFFF;
@@ -265,12 +271,18 @@ contract Hollow {
             if (_dist2(p, pos) > reach * reach) revert BadSamples();
             // no stepping through walls: the midpoint of each hop must be open too
             if (_solid(((p & 0xFFFF) + (pos & 0xFFFF)) / 2, ((p >> 16) + (pos >> 16)) / 2)) revert BadSamples();
-            (slotKey, word) = _put(id, body, slotKey, word, idx, p);
+            if ((idx >> 3) != slot) {
+                store[slot] = word;
+                slot = idx >> 3;
+                word = store[slot];
+            }
+            uint256 shift = 32 * (idx & 7);
+            word = (word & ~(uint256(0xFFFFFFFF) << shift)) | (p << shift);
             pos = p;
             prevIndex = idx + 1;
             idx++;
         }
-        samples[id][slotKey] = word;
+        store[slot] = word;
 
         b.nSamples = uint32(idx);
         b.lastPos = uint32(pos);
@@ -281,42 +293,27 @@ contract Hollow {
         }
     }
 
-    /// @dev writes sample `idx` into the cached slot word, flushing when the slot changes
-    function _put(uint256 id, uint8 body, uint256 slotKey, uint256 word, uint256 idx, uint256 p)
-        private
-        returns (uint256, uint256)
-    {
-        uint256 key = (uint256(body) << 32) | (idx >> 3);
-        if (key != slotKey) {
-            samples[id][slotKey] = word;
-            slotKey = key;
-            word = samples[id][key];
-        }
-        uint256 shift = 32 * (idx & 7);
-        word = (word & ~(uint256(0xFFFFFFFF) << shift)) | (p << shift);
-        return (slotKey, word);
-    }
-
     // ================================================================ proofs
 
     /// @notice Prove that a Hollow-controlled body touched a living soul's body.
     function turn(uint256 id, uint32 epoch, uint8 victimBody, uint8 hollowBody, uint32 index) external {
-        Night storage n = nights[id];
-        _sync(id, n);
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
+        _sync(id, d);
         if (_isOver(n)) revert NightOver();
-        uint256 blk = _checkSample(id, n, epoch, index);
-        uint256 ew = epochs[id][epoch];
+        uint256 blk = _checkSample(d, epoch, index);
+        uint256 ew = d.epochs[epoch];
         if (blk < ((ew >> 32) & type(uint64).max) + SHIFT_GRACE_BLOCKS) revert InvalidProof();
         if (blk < n.startBlock + START_GRACE_BLOCKS) revert InvalidProof();
 
         uint8 sv = uint8((ew >> (4 * victimBody)) & 0xF);
         uint8 sh = uint8((ew >> (4 * hollowBody)) & 0xF);
         if (victimBody == hollowBody) revert InvalidProof();
-        Soul storage v = souls[id][sv];
-        Soul storage h = souls[id][sh];
+        Soul storage v = d.souls[sv];
+        Soul storage h = d.souls[sh];
         if (h.hollowSince == 0 || h.hollowSince >= blk) revert InvalidProof();
         if (v.hollowSince != 0 || v.escapedRel != 0) revert InvalidProof();
-        if (_dist2(_sampleAt(id, n, victimBody, index), _sampleAt(id, n, hollowBody, index)) > TURN_RADIUS_CM * TURN_RADIUS_CM) {
+        if (_dist2(_sampleAt(id, d, victimBody, index), _sampleAt(id, d, hollowBody, index)) > TURN_RADIUS_CM * TURN_RADIUS_CM) {
             revert InvalidProof();
         }
 
@@ -328,15 +325,16 @@ contract Hollow {
 
     /// @notice Prove that a living soul walked a body onto a fuse.
     function collectFuse(uint256 id, uint32 epoch, uint8 body, uint32 index, uint8 fuse) external {
-        Night storage n = nights[id];
-        _sync(id, n);
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
+        _sync(id, d);
         if (_isOver(n)) revert NightOver();
         if (fuse > 2 || (n.fuses >> fuse) & 1 == 1) revert InvalidProof();
-        uint256 blk = _checkSample(id, n, epoch, index);
-        uint8 s = uint8((epochs[id][epoch] >> (4 * body)) & 0xF);
-        if (!_livingAt(souls[id][s], blk)) revert InvalidProof();
+        uint256 blk = _checkSample(d, epoch, index);
+        uint8 s = uint8((d.epochs[epoch] >> (4 * body)) & 0xF);
+        if (!_livingAt(d.souls[s], blk)) revert InvalidProof();
         uint256 target = (objectives >> (32 * fuse)) & 0xFFFFFFFF;
-        if (_dist2(_sampleAt(id, n, body, index), target) > OBJECTIVE_RADIUS_CM * OBJECTIVE_RADIUS_CM) {
+        if (_dist2(_sampleAt(id, d, body, index), target) > OBJECTIVE_RADIUS_CM * OBJECTIVE_RADIUS_CM) {
             revert InvalidProof();
         }
         n.fuses |= uint8(1 << fuse);
@@ -349,19 +347,20 @@ contract Hollow {
 
     /// @notice Prove that a living soul reached the powered exit. The soul and the body it wore leave the night.
     function escape(uint256 id, uint32 epoch, uint8 body, uint32 index) external {
-        Night storage n = nights[id];
-        _sync(id, n);
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
+        _sync(id, d);
         if (_isOver(n)) revert NightOver();
         if (n.exitOpenBlock == 0) revert InvalidProof();
-        uint256 blk = _checkSample(id, n, epoch, index);
+        uint256 blk = _checkSample(d, epoch, index);
         if (blk < n.exitOpenBlock) revert InvalidProof();
-        uint8 s = uint8((epochs[id][epoch] >> (4 * body)) & 0xF);
-        Soul storage soul = souls[id][s];
+        uint8 s = uint8((d.epochs[epoch] >> (4 * body)) & 0xF);
+        Soul storage soul = d.souls[s];
         if (soul.hollowSince != 0 || soul.escapedRel != 0) revert InvalidProof();
-        Body storage b = bodies[id][body];
+        Body storage b = d.bodies[body];
         if (b.goneRel != 0) revert InvalidProof();
         uint256 target = (objectives >> 96) & 0xFFFFFFFF;
-        if (_dist2(_sampleAt(id, n, body, index), target) > OBJECTIVE_RADIUS_CM * OBJECTIVE_RADIUS_CM) {
+        if (_dist2(_sampleAt(id, d, body, index), target) > OBJECTIVE_RADIUS_CM * OBJECTIVE_RADIUS_CM) {
             revert InvalidProof();
         }
         uint32 rel = uint32(blk - n.startBlock);
@@ -394,48 +393,52 @@ contract Hollow {
     /// @notice Buy an item into the pockets of the body you wear. Your recorded position at sample
     ///         `index` must be at the counter of the shop that sells it. The price goes to the pot.
     function buy(uint256 id, uint32 epoch, uint8 body, uint32 index, uint8 item) external payable {
-        Night storage n = nights[id];
-        _sync(id, n);
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
+        _sync(id, d);
         if (_isOver(n)) revert NightOver();
-        if (msg.value < itemPrice(item)) revert FeeTooLow();
-        _checkSample(id, n, epoch, index);
+        if (msg.value != itemPrice(item)) revert FeeTooLow(); // exact: no silent overpayment
+        _checkSample(d, epoch, index);
         uint256 s = soulIndexPlus1[id][msg.sender];
         if (s == 0) revert NotASoul();
         s -= 1;
-        if ((epochs[id][epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
+        if ((d.epochs[epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
         uint256 counter = (objectives >> (32 * (4 + itemShop(item)))) & 0xFFFFFFFF;
-        if (_dist2(_sampleAt(id, n, body, index), counter) > SHOP_RADIUS_CM * SHOP_RADIUS_CM) revert NotAtShop();
-        uint256 p = pockets[id][body];
+        if (_dist2(_sampleAt(id, d, body, index), counter) > SHOP_RADIUS_CM * SHOP_RADIUS_CM) revert NotAtShop();
+        uint256 p = d.pockets[body];
         uint256 count = (p >> (16 * item)) & 0xFFFF;
         if (count >= MAX_ITEM_STACK) revert PocketsFull();
-        pockets[id][body] = p + (uint256(1) << (16 * item));
+        d.pockets[body] = p + (uint256(1) << (16 * item));
         pot[id] += msg.value;
         emit Bought(id, body, uint8(s), item, msg.value);
     }
 
     /// @notice Use an item from the pockets of the body you wear right now.
     function use(uint256 id, uint8 body, uint8 item) external {
-        Night storage n = nights[id];
-        _sync(id, n);
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
+        _sync(id, d);
         if (_isOver(n) || n.startBlock == 0 || block.number < n.startBlock) revert NightOver();
         if (item >= ITEM_COUNT) revert NoItem();
         uint256 s = soulIndexPlus1[id][msg.sender];
         if (s == 0) revert NotASoul();
         s -= 1;
-        if ((epochs[id][n.epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
-        uint256 p = pockets[id][body];
+        if ((d.epochs[n.epoch] >> (4 * body)) & 0xF != s) revert NotYourBody();
+        uint256 p = d.pockets[body];
         if ((p >> (16 * item)) & 0xFFFF == 0) revert NoItem();
-        pockets[id][body] = p - (uint256(1) << (16 * item));
-        Body storage b = bodies[id][body];
+        Body storage b = d.bodies[body];
+        if (b.goneRel != 0) revert NotYourBody();
+        d.pockets[body] = p - (uint256(1) << (16 * item));
         uint32 pos = b.nSamples == 0 ? uint32((spawns >> (32 * body)) & 0xFFFFFFFF) : b.lastPos;
         emit Used(id, body, uint8(s), item, pos, uint64(block.number));
     }
 
     function getPockets(uint256 id) external view returns (uint256[] memory out) {
-        uint256 c = nights[id].nSouls;
+        NightData storage d = nightData[id];
+        uint256 c = d.n.nSouls;
         out = new uint256[](c);
         for (uint256 i = 0; i < c; i++) {
-            out[i] = pockets[id][i];
+            out[i] = d.pockets[i];
         }
     }
 
@@ -444,13 +447,14 @@ contract Hollow {
     /// @notice Watchers pay to torment a running night. Every fee goes to the survivors' pot.
     /// @param kind 1 lights out around a body, 2 whisper at a body, 3 scream at a body, 4 force an early shift
     function torment(uint256 id, uint8 kind, uint8 body) external payable {
-        Night storage n = nights[id];
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
         if (n.startBlock == 0 || block.number < n.startBlock) revert NotStarted();
         if (_isOver(n)) revert NightOver();
         if (kind == 0 || kind > TORMENT_FORCE_SHIFT || body >= n.nSouls) revert InvalidProof();
         uint256 fee = kind == TORMENT_FORCE_SHIFT ? TORMENT_FEE * FORCE_SHIFT_MULTIPLIER : TORMENT_FEE;
-        if (msg.value < fee) revert FeeTooLow();
-        _sync(id, n);
+        if (msg.value != fee) revert FeeTooLow(); // exact: no silent overpayment
+        _sync(id, d);
         if (kind == TORMENT_FORCE_SHIFT) {
             if (n.lastForcedShift != 0 && block.number < n.lastForcedShift + FORCE_SHIFT_COOLDOWN) revert Cooldown();
             n.lastForcedShift = uint64(block.number);
@@ -463,12 +467,13 @@ contract Hollow {
 
     /// @notice After the night, each escaped soul claims an equal share of the watchers' pot.
     function claimPot(uint256 id) external {
-        Night storage n = nights[id];
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
         if (!_isOver(n)) revert NightOver();
         uint256 s = soulIndexPlus1[id][msg.sender];
         if (s == 0) revert NotASoul();
         s -= 1;
-        if (souls[id][s].escapedRel == 0 || potClaimed[id][s] || n.escapedCount == 0) revert NothingToClaim();
+        if (d.souls[s].escapedRel == 0 || potClaimed[id][s] || n.escapedCount == 0) revert NothingToClaim();
         potClaimed[id][s] = true;
         uint256 share = pot[id] / n.escapedCount;
         emit PotClaimed(id, uint8(s), share);
@@ -478,9 +483,10 @@ contract Hollow {
 
     /// @notice If nobody escaped, the pot haunts the next night instead.
     function rollOver(uint256 id, uint256 toNight) external {
-        Night storage n = nights[id];
+        NightData storage d = nightData[id];
+        Night storage n = d.n;
         if (!_isOver(n) || n.escapedCount != 0) revert NothingToClaim();
-        if (toNight <= id || nights[toNight].host == address(0) || _isOver(nights[toNight])) revert InvalidProof();
+        if (toNight <= id || nightData[toNight].n.host == address(0) || _isOver(nightData[toNight].n)) revert InvalidProof();
         uint256 amount = pot[id];
         if (amount == 0) revert NothingToClaim();
         pot[id] = 0;
@@ -490,20 +496,22 @@ contract Hollow {
 
     /// @notice Anyone can push pending shifts forward (clients do it automatically).
     function sync(uint256 id) external {
-        _sync(id, nights[id]);
+        _sync(id, nightData[id]);
     }
 
     // ================================================================ internals
 
-    function _checkSample(uint256 id, Night storage n, uint32 epoch, uint32 index) private view returns (uint256 blk) {
+    function _checkSample(NightData storage d, uint32 epoch, uint32 index) private view returns (uint256 blk) {
+        Night storage n = d.n;
         if (n.startBlock == 0) revert NotStarted();
+        if (epoch >= MAX_EPOCHS) revert InvalidProof();
         blk = n.startBlock + uint256(index) * SAMPLE_BLOCKS;
-        uint256 ew = epochs[id][epoch];
+        uint256 ew = d.epochs[epoch];
         uint256 eStart = (ew >> 32) & type(uint64).max;
         if (ew == 0 && epoch != 0) revert InvalidProof();
         if (blk < eStart) revert InvalidProof();
         if (epoch < n.epoch) {
-            uint256 nextStart = (epochs[id][epoch + 1] >> 32) & type(uint64).max;
+            uint256 nextStart = (d.epochs[epoch + 1] >> 32) & type(uint64).max;
             if (blk >= nextStart) revert InvalidProof();
         } else if (epoch > n.epoch) {
             revert InvalidProof();
@@ -516,8 +524,10 @@ contract Hollow {
 
     /// @dev position of `body` at sample `index`: the last recorded sample at or before it, the
     ///      body's spawn if it never moved, or its last position once the index can no longer be written
-    function _sampleAt(uint256 id, Night storage n, uint8 body, uint32 index) private view returns (uint256) {
-        Body storage b = bodies[id][body];
+    function _sampleAt(uint256 id, NightData storage d, uint8 body, uint32 index) private view returns (uint256) {
+        Night storage n = d.n;
+        Body storage b = d.bodies[body];
+        uint256[160] storage store = sampleStore[(id << 3) | body];
         uint256 nS = b.nSamples;
         if (index >= nS) {
             if (n.startBlock + uint256(index) * SAMPLE_BLOCKS + LATE_BLOCKS >= block.number) revert InvalidProof();
@@ -529,7 +539,7 @@ contract Hollow {
         for (uint256 scanned = 0; scanned < MAX_SCAN; scanned++) {
             if ((i >> 3) != slot) {
                 slot = i >> 3;
-                word = samples[id][(uint256(body) << 32) | slot];
+                word = store[slot];
             }
             uint256 v = (word >> (32 * (i & 7))) & 0xFFFFFFFF;
             if (v != 0) return v;
@@ -544,24 +554,44 @@ contract Hollow {
     }
 
     /// @dev finds the epoch containing `blk`, walking back from the current epoch
-    function _epochAt(uint256 id, uint256 current, uint256 blk) private view returns (uint256 e) {
+    function _epochAt(NightData storage d, uint256 current, uint256 blk) private view returns (uint256 e) {
         e = current;
-        while (e > 0 && ((epochs[id][e] >> 32) & type(uint64).max) > blk) {
+        while (e > 0 && ((d.epochs[e] >> 32) & type(uint64).max) > blk) {
             e--;
         }
     }
 
+    /// @dev picks the hidden Hollow(s) from the hash of the block just before the night begins
+    function _assignRoles(uint256 id, NightData storage d) private {
+        Night storage n = d.n;
+        n.rolesSet = true;
+        uint256 count = n.nSouls;
+        uint256 hollows = count >= 6 ? 2 : (count >= 2 ? 1 : 0);
+        if (hollows == 0) return;
+        bytes32 bh = blockhash(n.startBlock - 1);
+        uint256 seed = uint256(keccak256(abi.encode(bh == bytes32(0) ? keccak256(abi.encode(id, "late")) : bh, id, "hollow")));
+        uint256 h1 = seed % count;
+        d.souls[h1].hollowSince = n.startBlock;
+        if (hollows == 2) {
+            uint256 h2 = (h1 + 1 + (seed >> 8) % (count - 1)) % count;
+            d.souls[h2].hollowSince = n.startBlock;
+        }
+        n.living = uint8(count - hollows);
+    }
+
     /// @dev applies every shift whose block has arrived
-    function _sync(uint256 id, Night storage n) private {
+    function _sync(uint256 id, NightData storage d) private {
+        Night storage n = d.n;
+        if (!n.rolesSet && n.startBlock != 0 && block.number >= n.startBlock) _assignRoles(id, d);
         uint256 next = n.nextShift;
         if (n.startBlock == 0 || block.number < next || n.endBlock != 0) return;
         uint256 nightEnd = n.startBlock + NIGHT_BLOCKS;
         uint256 e = n.epoch;
         uint256 count = n.nSouls;
-        for (uint256 guard = 0; guard < 16 && block.number >= next && next < nightEnd; guard++) {
+        for (uint256 guard = 0; guard < 16 && block.number >= next && next < nightEnd && e + 1 < MAX_EPOCHS; guard++) {
             bytes32 bh = blockhash(next - 1);
             uint256 seed = uint256(keccak256(abi.encode(bh == bytes32(0) ? keccak256(abi.encode(id, e)) : bh, id, e)));
-            uint256 prev = epochs[id][e];
+            uint256 prev = d.epochs[e];
             uint256 assign = prev & 0xFFFFFFFF;
 
             // bodies still in play, and the souls inside them
@@ -591,7 +621,7 @@ contract Hollow {
                 nextAssign = (nextAssign & ~(uint256(0xF) << sh)) | (soulOf[k] << sh);
             }
             e++;
-            epochs[id][e] = _packEpoch(nextAssign, next, mask);
+            d.epochs[e] = _packEpoch(nextAssign, next, mask);
             emit Shifted(id, uint32(e), uint64(next));
             next = next + SHIFT_MIN + uint256(keccak256(abi.encode(seed, "next"))) % SHIFT_RANGE;
         }
@@ -629,13 +659,14 @@ contract Hollow {
         view
         returns (address[] memory addrs, bytes16[] memory soulNames, uint64[] memory hollowSince, uint32[] memory escapedRel)
     {
-        uint256 c = nights[id].nSouls;
+        NightData storage d = nightData[id];
+        uint256 c = d.n.nSouls;
         addrs = new address[](c);
         soulNames = new bytes16[](c);
         hollowSince = new uint64[](c);
         escapedRel = new uint32[](c);
         for (uint256 i = 0; i < c; i++) {
-            Soul storage s = souls[id][i];
+            Soul storage s = d.souls[i];
             addrs[i] = s.addr;
             soulNames[i] = names[s.addr];
             hollowSince[i] = s.hollowSince;
@@ -643,26 +674,48 @@ contract Hollow {
         }
     }
 
+    function nights(uint256 id) external view returns (Night memory) {
+        return nightData[id].n;
+    }
+
+    function soulInfo(uint256 id, uint256 s) external view returns (Soul memory) {
+        return nightData[id].souls[s];
+    }
+
+    function bodyInfo(uint256 id, uint256 b) external view returns (Body memory) {
+        return nightData[id].bodies[b];
+    }
+
+    function epochWord(uint256 id, uint256 e) external view returns (uint256) {
+        return nightData[id].epochs[e];
+    }
+
+    function pocketsOf(uint256 id, uint256 b) external view returns (uint256) {
+        return nightData[id].pockets[b];
+    }
+
     /// @notice One call per poll: night header, current epoch word, every body's tail samples.
     function snapshot(uint256 id, uint256 tail)
         external
         view
-        returns (Night memory night, uint256 epochWord, uint256 blockNumber, Body[] memory bodyList, uint256[] memory tails)
+        returns (Night memory night, uint256 epochWordNow, uint256 blockNumber, Body[] memory bodyList, uint256[] memory tails)
     {
-        night = nights[id];
-        epochWord = epochs[id][night.epoch];
+        NightData storage d = nightData[id];
+        night = d.n;
+        epochWordNow = d.epochs[night.epoch];
         blockNumber = block.number;
         uint256 c = night.nSouls;
         bodyList = new Body[](c);
         if (tail > 32) tail = 32;
         tails = new uint256[](c * tail);
         for (uint256 i = 0; i < c; i++) {
-            Body storage b = bodies[id][i];
+            Body storage b = d.bodies[i];
             bodyList[i] = b;
             uint256 nS = b.nSamples;
+            uint256[160] storage store = sampleStore[(id << 3) | i];
             for (uint256 t = 0; t < tail && t < nS; t++) {
                 uint256 index = nS - 1 - t;
-                uint256 word = samples[id][(i << 32) | (index >> 3)];
+                uint256 word = store[index >> 3];
                 tails[i * tail + t] = (index << 32) | ((word >> (32 * (index & 7))) & 0xFFFFFFFF);
             }
         }
@@ -670,19 +723,21 @@ contract Hollow {
 
     /// @notice Epoch words from `from` up to the current epoch (inclusive).
     function getEpochs(uint256 id, uint256 from) external view returns (uint256[] memory out) {
-        uint256 cur = nights[id].epoch;
+        NightData storage d = nightData[id];
+        uint256 cur = d.n.epoch;
         if (from > cur) return new uint256[](0);
         out = new uint256[](cur - from + 1);
         for (uint256 e = from; e <= cur; e++) {
-            out[e - from] = epochs[id][e];
+            out[e - from] = d.epochs[e];
         }
     }
 
     /// @notice Raw packed sample slots for replays.
     function getSampleSlots(uint256 id, uint8 body, uint256 fromSlot, uint256 count) external view returns (uint256[] memory out) {
+        uint256[160] storage store = sampleStore[(id << 3) | body];
         out = new uint256[](count);
-        for (uint256 k = 0; k < count; k++) {
-            out[k] = samples[id][(uint256(body) << 32) | (fromSlot + k)];
+        for (uint256 k = 0; k < count && fromSlot + k < SAMPLE_SLOTS; k++) {
+            out[k] = store[fromSlot + k];
         }
     }
 }

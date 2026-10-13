@@ -153,6 +153,19 @@ export const hollowAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_EPOCHS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_ITEM_STACK",
     "inputs": [],
     "outputs": [
@@ -232,6 +245,19 @@ export const hollowAbi = [
   {
     "type": "function",
     "name": "SAMPLE_BLOCKS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SAMPLE_SLOTS",
     "inputs": [],
     "outputs": [
       {
@@ -413,44 +439,51 @@ export const hollowAbi = [
   },
   {
     "type": "function",
-    "name": "bodies",
+    "name": "bodyInfo",
     "inputs": [
       {
-        "name": "",
+        "name": "id",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "",
+        "name": "b",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "nSamples",
-        "type": "uint32",
-        "internalType": "uint32"
-      },
-      {
-        "name": "lastPos",
-        "type": "uint32",
-        "internalType": "uint32"
-      },
-      {
-        "name": "goneRel",
-        "type": "uint32",
-        "internalType": "uint32"
-      },
-      {
-        "name": "voice",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "voiceIndex",
-        "type": "uint32",
-        "internalType": "uint32"
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct Hollow.Body",
+        "components": [
+          {
+            "name": "nSamples",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "lastPos",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "goneRel",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "voice",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "voiceIndex",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -549,15 +582,15 @@ export const hollowAbi = [
   },
   {
     "type": "function",
-    "name": "epochs",
+    "name": "epochWord",
     "inputs": [
       {
-        "name": "",
+        "name": "id",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "",
+        "name": "e",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -811,76 +844,88 @@ export const hollowAbi = [
     "name": "nights",
     "inputs": [
       {
-        "name": "",
+        "name": "id",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "host",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "lobbyEnd",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "nSouls",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "living",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "fuses",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "goneMask",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "startBlock",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "nextShift",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "exitOpenBlock",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "endBlock",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "epoch",
-        "type": "uint32",
-        "internalType": "uint32"
-      },
-      {
-        "name": "escapedCount",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "lastForcedShift",
-        "type": "uint64",
-        "internalType": "uint64"
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct Hollow.Night",
+        "components": [
+          {
+            "name": "host",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lobbyEnd",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "nSouls",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "living",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "fuses",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "goneMask",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "startBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "nextShift",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "exitOpenBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "endBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "epoch",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "escapedCount",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "lastForcedShift",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "rolesSet",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -900,15 +945,15 @@ export const hollowAbi = [
   },
   {
     "type": "function",
-    "name": "pockets",
+    "name": "pocketsOf",
     "inputs": [
       {
-        "name": "",
+        "name": "id",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "",
+        "name": "b",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -975,6 +1020,11 @@ export const hollowAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "soul",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
         "name": "body",
         "type": "uint8",
         "internalType": "uint8"
@@ -1020,30 +1070,6 @@ export const hollowAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "samples",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1143,11 +1169,16 @@ export const hollowAbi = [
             "name": "lastForcedShift",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "rolesSet",
+            "type": "bool",
+            "internalType": "bool"
           }
         ]
       },
       {
-        "name": "epochWord",
+        "name": "epochWordNow",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -1222,34 +1253,41 @@ export const hollowAbi = [
   },
   {
     "type": "function",
-    "name": "souls",
+    "name": "soulInfo",
     "inputs": [
       {
-        "name": "",
+        "name": "id",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "",
+        "name": "s",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "addr",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "hollowSince",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "escapedRel",
-        "type": "uint32",
-        "internalType": "uint32"
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct Hollow.Soul",
+        "components": [
+          {
+            "name": "addr",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "hollowSince",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "escapedRel",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ]
       }
     ],
     "stateMutability": "view"

@@ -115,8 +115,10 @@ async function renderNights() {
   for (let i = count; i > 0n && ids.length < 6; i--) ids.push(i);
   const rows = await Promise.all(
     ids.map(async (id) => {
-      const n = (await publicClient.readContract({ address: NET.hollow, abi: hollowAbi, functionName: 'nights', args: [id] })) as readonly unknown[];
-      const [host, lobbyEnd, nSouls, living, , , startBlock, , , endBlock] = n as [Hex, bigint, number, number, number, number, bigint, bigint, bigint, bigint];
+      const n = (await publicClient.readContract({ address: NET.hollow, abi: hollowAbi, functionName: 'nights', args: [id] })) as {
+        host: Hex; lobbyEnd: bigint; nSouls: number; living: number; startBlock: bigint; endBlock: bigint;
+      };
+      const { host, lobbyEnd, nSouls, living, startBlock, endBlock } = n;
       let status = 'open lobby';
       if (Number(startBlock)) {
         const over = Number(endBlock) || block >= startBlock + 1600n;

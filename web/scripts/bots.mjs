@@ -21,11 +21,11 @@ const args = Object.fromEntries(
 const RPC = args.rpc ?? process.env.RPC_URL ?? 'http://127.0.0.1:8545';
 const HOLLOW = args.hollow ?? process.env.HOLLOW ?? '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const COUNT = Number(args.count ?? 5);
-const BATCH = Number(args.batch ?? 5);
+const BATCH = Number(args.batch ?? 4);
 const root = new URL('../../', import.meta.url);
 const abi = JSON.parse(readFileSync(new URL('contracts/out/Hollow.sol/Hollow.json', root))).abi;
 const map = JSON.parse(readFileSync(new URL('tools/map/hollow-map.json', root)));
-const GRID = 64, CELL = 300, SAMPLE = 2, SHIFT_MIN = 100, SHIFT_RANGE = 150, NIGHT = 2400, LATE = 40;
+const GRID = 64, CELL = 300, SAMPLE = 2, SHIFT_MIN = 100, SHIFT_RANGE = 150, NIGHT = 2400, LATE = 16;
 
 const client = createPublicClient({ transport: http(RPC, { batch: false, retryCount: 2 }) });
 const chainId = await client.getChainId();
@@ -54,6 +54,20 @@ const FEES = { maxFeePerGas: 130_000_000_000n, maxPriorityFeePerGas: 1_000_000_0
 const GAS = { record: 120_000n, sync: 140_000n, turn: 160_000n, collectFuse: 160_000n, escape: 160_000n, join: 140_000n, createNight: 120_000n, start: 260_000n, setName: 60_000n, buy: 170_000n, use: 110_000n };
 let sentCount = 0;
 const lastSent = new Map();
+// ESTIMATE=1: eth_estimateGas every call, send with a 20% margin, print the distribution on exit
+const ESTIMATE = !!process.env.ESTIMATE;
+const estimates = new Map();
+if (ESTIMATE) {
+  const report = () => {
+    for (const [k, v] of [...estimates].sort()) {
+      const u = [...v].sort((a, b) => a - b);
+      const pct = (q) => u[Math.min(u.length - 1, Math.floor(q * u.length))];
+      console.log(`gas ${k.padEnd(26)} n=${String(u.length).padStart(4)}  min ${u[0]}  p50 ${pct(0.5)}  p95 ${pct(0.95)}  max ${u[u.length - 1]}`);
+    }
+  };
+  process.on('SIGTERM', () => (report(), process.exit(0)));
+  process.on('SIGINT', () => (report(), process.exit(0)));
+}
 async function send(account, fn, fnArgs, extra = {}) {
   const data = encodeFunctionData({ abi, functionName: fn, args: fnArgs });
   // Monad reserve balance: value-carrying txs need 3 quiet blocks from this sender first
@@ -61,10 +75,23 @@ async function send(account, fn, fnArgs, extra = {}) {
     const wait = 2300 - (Date.now() - (lastSent.get(account.address) ?? 0));
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   }
+  let gas = extra.gas ?? GAS[fn] ?? 200_000n;
+  if (ESTIMATE) {
+    // measure the real execution cost (Monad receipts report the limit, not what was used)
+    try {
+      const est = await client.estimateGas({ account: account.address, to: HOLLOW, data, value: extra.value ?? 0n });
+      const key = `${fn}${extra.tag ? ':' + extra.tag : ''}`;
+      (estimates.get(key) ?? estimates.set(key, []).get(key)).push(Number(est));
+      gas = (est * 12n) / 10n;
+    } catch (e) {
+      console.error(`[estimate ${fn}]`, String(e.shortMessage ?? e.message).slice(0, 120));
+      return null;
+    }
+  }
   let n = nonces.get(account.address);
   if (n === undefined) n = await client.getTransactionCount({ address: account.address, blockTag: 'pending' });
   nonces.set(account.address, n + 1);
-  const raw = await account.signTransaction({ chainId, type: 'eip1559', to: HOLLOW, data, gas: extra.gas ?? GAS[fn] ?? 200_000n, nonce: n, value: extra.value ?? 0n, ...FEES });
+  const raw = await account.signTransaction({ chainId, type: 'eip1559', to: HOLLOW, data, gas, nonce: n, value: extra.value ?? 0n, ...FEES });
   try {
     const hash = await client.request({ method: 'eth_sendRawTransaction', params: [raw] });
     lastSent.set(account.address, Date.now());
@@ -72,7 +99,7 @@ async function send(account, fn, fnArgs, extra = {}) {
     return hash;
   } catch (e) {
     nonces.delete(account.address); // any failure: our local nonce may now be ahead of the chain
-    if (!/already known/i.test(String(e.message))) console.error(`[${fn}]`, String(e.shortMessage ?? e.message).slice(0, 140));
+    if (!/already known/i.test(String(e.message))) console.error(`[${fn}]`, String(e.shortMessage ?? e.message).slice(0, 100), '|', String(e.details ?? e.cause?.details ?? e.cause?.message ?? '').slice(0, 200));
     return null;
   }
 }
@@ -172,7 +199,7 @@ if (args.create && args['start-when']) {
   console.log(`waiting for ${want} souls in night ${nightId}…`);
   for (;;) {
     const n = await read('nights', [nightId]);
-    if (Number(n[2]) >= want) break;
+    if (Number(n.nSouls) >= want) break;
     await new Promise((r) => setTimeout(r, 1000));
   }
   await new Promise((r) => setTimeout(r, 2000));
@@ -369,8 +396,8 @@ for (;;) {
     // flush
     const nS = Number(bodies[bot.body]?.nSamples ?? 0);
     const ready = bot.pending.filter((p) => p.body === bot.body && start() + p.index * SAMPLE <= chainBlock + 1 && p.index >= nS);
-    bot.pending = bot.pending.filter((p) => p.body === bot.body && p.index >= nS && start() + p.index * SAMPLE + LATE > chainBlock);
-    if (ready.length >= BATCH || (ready.length && Date.now() - bot.lastSend > 1500)) {
+    bot.pending = bot.pending.filter((p) => p.body === bot.body && p.index >= nS && start() + p.index * SAMPLE + LATE > chainBlock + 3);
+    if (ready.length >= BATCH || (ready.length && Date.now() - bot.lastSend > 1600)) {
       const run = [];
       for (const p of ready) {
         if (run.length && p.index !== run[run.length - 1].index + 1) break;
@@ -387,7 +414,7 @@ for (;;) {
       bot.lastSend = Date.now();
       const newSlot = run.some((p) => p.index % 8 === 0) || (run[0].index >> 3) !== (nS >> 3);
       const shiftDue = chainBlock + 1 >= Number(h.nextShift);
-      void send(bot.acct, 'record', [nightId, bot.body, run[0].index, packed, run.length, voice], { gas: 78_000n + (newSlot ? 24_000n : 0n) + (shiftDue ? 85_000n : 0n) + (voice ? 6_000n : 0n) });
+      void send(bot.acct, 'record', [nightId, bot.soul, bot.body, run[0].index, packed, run.length, voice], { gas: process.env.RECORD_GAS ? BigInt(process.env.RECORD_GAS) : 78_000n + (newSlot ? 24_000n : 0n) + (shiftDue ? 85_000n : 0n) + (voice ? 6_000n : 0n), tag: `${run.length}${newSlot ? '+slot' : ''}${shiftDue ? '+shift' : ''}${voice ? '+voice' : ''}${nS === 0 ? '+first' : ''}` });
     }
 
     // shopping: a flare from the 24/7 mart, lit once inside a dark landmark

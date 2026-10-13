@@ -10,7 +10,7 @@ Spectators ("watchers") can open any running night, switch between everyone's bo
 
 - **Play:** _GitHub Pages link — see [Deployment](#deployment)_
 - **Demo video:** _link added at submission_
-- **Contract (Monad testnet, chain 10143):** [`0xA30C47499589116b14A0F14f3Fcf2884aeA9D33c`](https://testnet.monadvision.com/address/0xA30C47499589116b14A0F14f3Fcf2884aeA9D33c)
+- **Contract (Monad testnet, chain 10143):** [`0xa6E52D260042a3a3EA19d4DFdE4D0aba130be4d5`](https://testnet.monadvision.com/address/0xa6E52D260042a3a3EA19d4DFdE4D0aba130be4d5)
 
 ---
 

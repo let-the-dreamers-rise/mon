@@ -51,14 +51,25 @@ contract HollowTest is Test {
         }
         vm.prank(players[0]);
         hollow.start(id);
+        // roles come from the hash of the block before the night begins
+        vm.roll(_start(id));
+        hollow.sync(id);
     }
 
     function _start(uint256 id) internal view returns (uint256 s) {
-        (,,,,,, s,,,,,,) = hollow.nights(id);
+        s = hollow.nights(id).startBlock;
+    }
+
+    function _n(uint256 id) internal view returns (Hollow.Night memory) {
+        return hollow.nights(id);
     }
 
     function _epochWord(uint256 id, uint256 e) internal view returns (uint256) {
-        return hollow.epochs(id, e);
+        return hollow.epochWord(id, e);
+    }
+
+    function _soul(address who, uint256 id) internal view returns (uint8) {
+        return uint8(hollow.soulIndexPlus1(id, who) - 1);
     }
 
     function _soulInBody(uint256 id, uint256 e, uint256 body) internal view returns (uint256) {
@@ -66,7 +77,7 @@ contract HollowTest is Test {
     }
 
     function _hollowSince(uint256 id, uint256 soul) internal view returns (uint64 hs) {
-        (, hs,) = hollow.souls(id, soul);
+        hs = hollow.soulInfo(id, soul).hollowSince;
     }
 
     /// record samples [from, from+pts.length) for `body` as `who`, at the block of the last sample
@@ -77,8 +88,9 @@ contract HollowTest is Test {
         }
         uint256 lastBlock = _start(id) + 2 * (uint256(from) + pts.length - 1);
         if (block.number < lastBlock) vm.roll(lastBlock);
+        uint8 soul = _soul(who, id);
         vm.prank(who);
-        hollow.record(id, body, from, packed, uint8(pts.length), voice);
+        hollow.record(id, soul, body, from, packed, uint8(pts.length), voice);
     }
 
     function _one(uint256 p) internal pure returns (uint256[] memory a) {
@@ -93,7 +105,7 @@ contract HollowTest is Test {
             if (_hollowSince(id, i) != 0) hollows++;
         }
         assertEq(hollows, 1);
-        (,,, uint8 living,,,,,,,,,) = hollow.nights(id);
+        uint8 living = _n(id).living;
         assertEq(living, 3);
         // epoch 0: everyone in their own body
         for (uint256 b = 0; b < 4; b++) {
@@ -117,7 +129,8 @@ contract HollowTest is Test {
         pts[1] = cellCm(2, 3);
         pts[2] = cellCm(2, 4);
         _rec(id, players[0], 0, 0, pts, 2);
-        (uint32 nS, uint32 lastPos,, uint8 voice, uint32 voiceIndex) = hollow.bodies(id, 0);
+        Hollow.Body memory bd = hollow.bodyInfo(id, 0);
+        (uint32 nS, uint32 lastPos, uint8 voice, uint32 voiceIndex) = (bd.nSamples, bd.lastPos, bd.voice, bd.voiceIndex);
         assertEq(nS, 3);
         assertEq(lastPos, cellCm(2, 4));
         assertEq(voice, 2);
@@ -129,7 +142,7 @@ contract HollowTest is Test {
         vm.roll(_start(id));
         vm.prank(players[1]);
         vm.expectRevert(Hollow.NotYourBody.selector);
-        hollow.record(id, 0, 0, cellCm(2, 2), 1, 0);
+        hollow.record(id, uint8(1), 0, 0, cellCm(2, 2), 1, 0);
     }
 
     function test_rejectsWallsTeleportsAndWallHops() public {
@@ -138,11 +151,11 @@ contract HollowTest is Test {
         // into a wall cell
         vm.prank(players[0]);
         vm.expectRevert(Hollow.BadSamples.selector);
-        hollow.record(id, 0, 0, cellCm(10, 6), 1, 0);
+        hollow.record(id, uint8(0), 0, 0, cellCm(10, 6), 1, 0);
         // teleport far away
         vm.prank(players[0]);
         vm.expectRevert(Hollow.BadSamples.selector);
-        hollow.record(id, 0, 0, cellCm(20, 20), 1, 0);
+        hollow.record(id, uint8(0), 0, 0, cellCm(20, 20), 1, 0);
 
         // walk next to the wall, then try to hop through it in one sample (midpoint is inside the wall)
         uint256[] memory pts = new uint256[](4);
@@ -167,7 +180,7 @@ contract HollowTest is Test {
         vm.roll(block.number + 2);
         vm.prank(players[0]);
         vm.expectRevert(Hollow.BadSamples.selector);
-        hollow.record(id, 0, 13, pt(11 * CELL + 10, 6 * CELL + 150), 1, 0);
+        hollow.record(id, uint8(0), 0, 13, pt(11 * CELL + 10, 6 * CELL + 150), 1, 0);
     }
 
     function test_samplesMustBeTimely() public {
@@ -176,12 +189,12 @@ contract HollowTest is Test {
         // a sample for a future block
         vm.prank(players[0]);
         vm.expectRevert(Hollow.BadSamples.selector);
-        hollow.record(id, 0, 5, cellCm(2, 2), 1, 0);
+        hollow.record(id, uint8(0), 0, 5, cellCm(2, 2), 1, 0);
         // a sample older than LATE_BLOCKS
         vm.roll(_start(id) + 100);
         vm.prank(players[0]);
         vm.expectRevert(Hollow.TooLate.selector);
-        hollow.record(id, 0, 0, cellCm(2, 2), 1, 0);
+        hollow.record(id, uint8(0), 0, 0, cellCm(2, 2), 1, 0);
     }
 
     function test_idleGapsAreAllowedButReachIsBounded() public {
@@ -189,16 +202,16 @@ contract HollowTest is Test {
         _rec(id, players[0], 0, 0, _one(cellCm(2, 2)), 0);
         // 5 intervals later the body may have moved up to 5 * MAX_STEP
         _rec(id, players[0], 0, 5, _one(cellCm(2, 9)), 0);
-        (uint32 nS,,,,) = hollow.bodies(id, 0);
+        uint32 nS = hollow.bodyInfo(id, 0).nSamples;
         assertEq(nS, 6);
     }
 
     function test_shiftMovesEverySoulToAnotherBody() public {
         uint256 id = _night(5);
-        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
+        uint64 nextShift = _n(id).nextShift;
         vm.roll(nextShift);
         hollow.sync(id);
-        (,,,,,,,,,, uint32 epoch,,) = hollow.nights(id);
+        uint32 epoch = _n(id).epoch;
         assertEq(epoch, 1);
         bool[5] memory seen;
         for (uint256 b = 0; b < 5; b++) {
@@ -213,9 +226,9 @@ contract HollowTest is Test {
         vm.roll(_start(id) + 2 * uint256(idx));
         vm.prank(players[0]);
         vm.expectRevert(Hollow.NotYourBody.selector);
-        hollow.record(id, 0, idx, cellCm(2, 2), 1, 0);
+        hollow.record(id, uint8(0), 0, idx, cellCm(2, 2), 1, 0);
         vm.prank(players[sNew]);
-        hollow.record(id, 0, idx, cellCm(2, 2), 1, 0);
+        hollow.record(id, uint8(sNew), 0, idx, cellCm(2, 2), 1, 0);
     }
 
     function test_hollowTouchTurnsTheLiving() public {
@@ -244,7 +257,7 @@ contract HollowTest is Test {
         vm.roll(block.number + 50);
         hollow.turn(id, 0, uint8(v), uint8(h), touch);
         assertEq(_hollowSince(id, v), _start(id) + 2 * uint256(touch));
-        (,,, uint8 living,,,,,,,,,) = hollow.nights(id);
+        uint8 living = _n(id).living;
         assertEq(living, 1);
         // a living body cannot "turn" anyone
         vm.expectRevert(Hollow.InvalidProof.selector);
@@ -312,9 +325,11 @@ contract HollowTest is Test {
         uint32 later = uint32((block.number - _start(id)) / 2);
         _rec(id, players[v], body, later, stay, 0);
         hollow.escape(id, 0, body, later);
-        (, , uint32 escapedRel) = hollow.souls(id, v);
+        uint32 escapedRel = hollow.soulInfo(id, v).escapedRel;
         assertGt(escapedRel, 0);
-        (,,, uint8 living,, uint8 goneMask,,,,,, uint8 escapedCount,) = hollow.nights(id);
+        uint8 living = _n(id).living;
+        uint8 goneMask = _n(id).goneMask;
+        uint8 escapedCount = _n(id).escapedCount;
         assertEq(escapedCount, 1);
         assertEq(living, 0);
         assertEq(goneMask, 1 << v);
@@ -335,10 +350,10 @@ contract HollowTest is Test {
         vm.roll(_start(id) + 10);
         vm.prank(players[0]);
         uint256 g = gasleft();
-        hollow.record(id, 0, 3, packed, 3, 0);
+        hollow.record(id, uint8(0), 0, 3, packed, 3, 0);
         emit log_named_uint("record(3) gas (excl. 21k base)", g - gasleft());
         // shift-triggering record
-        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
+        uint64 nextShift = _n(id).nextShift;
         vm.roll(nextShift);
         uint256 s = _soulInBody(id, 0, 0);
         s = s; // silence
@@ -359,7 +374,7 @@ contract HollowTest is Test {
         hollow.torment{value: 0.01 ether}(id, 2, 1);
         vm.prank(watcher);
         hollow.torment{value: 0.05 ether}(id, 4, 0);
-        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
+        uint64 nextShift = _n(id).nextShift;
         assertEq(nextShift, block.number + 10);
         // cooldown
         vm.prank(watcher);
@@ -368,7 +383,7 @@ contract HollowTest is Test {
         assertEq(hollow.pot(id), 0.06 ether);
         vm.roll(nextShift);
         hollow.sync(id);
-        (,,,,,,,,,, uint32 epoch,,) = hollow.nights(id);
+        uint32 epoch = _n(id).epoch;
         assertEq(epoch, 1);
     }
 
@@ -379,7 +394,7 @@ contract HollowTest is Test {
         vm.deal(watcher, 1 ether);
         vm.roll(_start(id) + 1);
         vm.prank(watcher);
-        hollow.torment{value: 0.02 ether}(id, 3, 0);
+        hollow.torment{value: 0.01 ether}(id, 3, 0);
         uint256 h;
         for (uint256 i = 0; i < 2; i++) {
             if (_hollowSince(id, i) != 0) h = i;
@@ -395,7 +410,7 @@ contract HollowTest is Test {
         vm.prank(players[0]);
         uint256 next = hollow.createNight();
         hollow.rollOver(id, next);
-        assertEq(hollow.pot(next), 0.02 ether);
+        assertEq(hollow.pot(next), 0.01 ether);
     }
 
     function test_shopsSellIntoTheBodysPockets() public {
@@ -418,7 +433,7 @@ contract HollowTest is Test {
         // a battery from the mart
         vm.prank(players[0]);
         hollow.buy{value: 0.004 ether}(id, 0, 0, 2, 0);
-        assertEq(hollow.pockets(id, 0) & 0xFFFF, 1);
+        assertEq(hollow.pocketsOf(id, 0) & 0xFFFF, 1);
         assertEq(hollow.pot(id), 0.004 ether);
         // someone else cannot use body 0's battery
         vm.prank(players[1]);
@@ -426,7 +441,7 @@ contract HollowTest is Test {
         hollow.use(id, 0, 0);
         vm.prank(players[0]);
         hollow.use(id, 0, 0);
-        assertEq(hollow.pockets(id, 0) & 0xFFFF, 0);
+        assertEq(hollow.pocketsOf(id, 0) & 0xFFFF, 0);
         vm.prank(players[0]);
         vm.expectRevert(Hollow.NoItem.selector);
         hollow.use(id, 0, 0);
@@ -442,7 +457,7 @@ contract HollowTest is Test {
         _rec(id, players[0], 0, 0, pts, 0);
         vm.prank(players[0]);
         hollow.buy{value: 0.008 ether}(id, 0, 0, 2, 1); // a flare in body 0's pocket
-        (,,,,,,, uint64 nextShift,,,,,) = hollow.nights(id);
+        uint64 nextShift = _n(id).nextShift;
         vm.roll(nextShift);
         hollow.sync(id);
         uint256 wearer = _soulInBody(id, 1, 0);
@@ -453,5 +468,36 @@ contract HollowTest is Test {
         hollow.use(id, 0, 1);
         vm.prank(players[wearer]);
         hollow.use(id, 0, 1);
+    }
+
+    function test_rolesComeFromAFutureBlock() public {
+        vm.prank(players[0]);
+        uint256 id = hollow.createNight();
+        for (uint256 i = 0; i < 4; i++) {
+            vm.prank(players[i]);
+            hollow.join(id);
+        }
+        vm.prank(players[0]);
+        hollow.start(id);
+        // right after start() nobody is Hollow yet: the deciding block hash does not exist
+        for (uint256 i = 0; i < 4; i++) assertEq(_hollowSince(id, i), 0);
+        assertFalse(_n(id).rolesSet);
+        vm.roll(_start(id));
+        hollow.sync(id);
+        assertTrue(_n(id).rolesSet);
+        uint256 hollows;
+        for (uint256 i = 0; i < 4; i++) if (_hollowSince(id, i) != 0) hollows++;
+        assertEq(hollows, 1);
+        assertEq(_n(id).living, 3);
+    }
+
+    function test_paymentsMustBeExact() public {
+        uint256 id = _night(3);
+        address watcher = makeAddr("watcher");
+        vm.deal(watcher, 1 ether);
+        vm.roll(_start(id) + 3);
+        vm.prank(watcher);
+        vm.expectRevert(Hollow.FeeTooLow.selector);
+        hollow.torment{value: 0.02 ether}(id, 1, 0);
     }
 }
