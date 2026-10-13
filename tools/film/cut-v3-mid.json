@@ -1,7 +1,7 @@
 {
   "segments": [
     ["static", null, 0, 0.35],
-    ["clip", "C", 0.0, 26.0],
+    ["clip", "C", 0.25, 26.0],
     ["static", null, 0, 0.35],
     ["slide", "lobby", 0, 10.5]
   ],

@@ -63,11 +63,15 @@ https://github.com/let-the-dreamers-rise/mon (public, MIT)
 
 ## Demo video (≤3 min)
 
-Upload `hollow-demo` to YouTube (unlisted is fine) and paste the link.
+Upload `hollow-demo-v3` (2:41, product footage only) to YouTube (unlisted is fine) and paste the link.
 
 ## Pitch video (≤2 min)
 
-Upload `hollow-pitch` and paste the link.
+Upload `hollow-pitch` (1:52) and paste the link.
+
+## Promo clip (optional, ≤30 s)
+
+Upload `hollow-promo` (0:28) and paste the link.
 
 ## Private notes for judges (long field 3)
 
