@@ -60,6 +60,41 @@ SECTIONS = {
     "end": [
         "Your fear is onchain. Forever.",
     ],
+    "alone": [
+        "Alone, it is worse. Something stands at the end of the street.",
+        "Look away... and it is closer.",
+        "And when the chain swaps you, you wake up on your knees. In a body that is not yours.",
+    ],
+}
+
+# the pitch video (tools/film/pitch.json): python3 narration.py --script pitch ...
+PITCH = {
+    "p_hook": ["This is HOLLOW: a horror game where every footstep is a transaction on Monad."],
+    "p_problem": [
+        "Onchain games today ask you to trust them.",
+        "The game runs on a server, and only the items live onchain. Nobody can check who really won.",
+        "And the attention that players and watchers give a game is captured by a platform, not paid back to them.",
+    ],
+    "p_built": [
+        "In HOLLOW, the game itself is onchain.",
+        "Every body's position is recorded every six hundred milliseconds. Swaps are seeded by block hashes, so everyone swaps on the same block.",
+        "Every touch, fuse and escape is proven against those positions. No server decides who died.",
+    ],
+    "p_watch": [
+        "Spectators pay MON to torment the players, and every fee goes to whoever survives. Attention becomes ownership.",
+        "Every night is archived, and can be replayed from chain data alone.",
+    ],
+    "p_monad": [
+        "This was impossible until now.",
+        "It needs three hundred millisecond blocks, and gas cheap enough to move every second. A step costs about sixty-five thousand gas, and players never touch each other's storage, so their moves can run in parallel.",
+    ],
+    "p_team": [
+        "HOLLOW is built by Archangel, a solo builder, with Claude Code as an AI pair programmer.",
+        "We attacked our own contract, fixed every hole we found, and shipped it with no admin keys.",
+        "Horror is the genre where trust is the game. Onchain, nobody can fake it.",
+    ],
+    "p_next": ["Next: hidden roles with commit-reveal, seasons and tournaments on mainnet, and a replay gallery where the scariest nights become culture."],
+    "p_end": ["HOLLOW. Something is wearing you. Play it now."],
 }
 
 GAP = 0.45  # silence between sentences
@@ -72,6 +107,7 @@ def main():
     ap.add_argument("--voice", default="bm_george")
     ap.add_argument("--speed", type=float, default=0.92)
     ap.add_argument("--only", default="", help="comma-separated sections to (re)generate")
+    ap.add_argument("--script", default="demo", choices=["demo", "pitch"])
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     from kokoro_onnx import Kokoro
@@ -85,7 +121,7 @@ def main():
         with open(prev_path) as f:
             prev = json.load(f)
         info, lines_info = prev["sections"], prev["lines"]
-    for name, lines in SECTIONS.items():
+    for name, lines in (PITCH if args.script == "pitch" else SECTIONS).items():
         if only and name not in only:
             continue
         parts, t = [], 0.0

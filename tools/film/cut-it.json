@@ -1,0 +1,17 @@
+{
+  "segments": [
+    ["static", null, 0, 0.35],
+    ["clip", "IT", 0.0, 21.8]
+  ],
+  "overlays": [],
+  "voice": [
+    ["alone_0.wav", 1, 0.6],
+    ["alone_1.wav", 1, 5.2],
+    ["alone_2.wav", 1, 16.2]
+  ],
+  "beds": [
+    ["heartbeat_slow_loop.mp3", 1, 3.4, 9.6, 0.5],
+    ["heartbeat_fast_loop.mp3", 1, 9.6, 13.6, 0.75],
+    ["breath_scared_loop.mp3", 1, 15.8, 21.6, 0.45]
+  ]
+}

@@ -528,13 +528,15 @@ export class Game {
     this.jumpscare = { fig, t: 0 };
     setTimeout(() => fig.reach(), 30);
     void this.audio.play('jumpscare_sting.mp3', 1);
-    this.fx.staticBurst = 0.6;
+    this.fx.staticBurst = 0.35;
     this.fx.tearBurst = 1;
     this.player.shake = 2.2;
     this.audio.duck(1.6);
     this.psych.hit(0.35);
-    this.player.flashlightOn = false;
-    this.player.battery = Math.min(this.player.battery, 0.5);
+    // the torch stutters on for the face, then dies
+    this.player.flashlightOn = true;
+    this.player.battery = Math.max(0.3, Math.min(this.player.battery, 0.5));
+    setTimeout(() => (this.player.flashlightOn = false), 1100);
     setTimeout(() => {
       this.hud.subtitle('it was not real. your torch went out anyway. (F)');
       this.fx.eyelids = 0.8;

@@ -160,6 +160,12 @@ def build_audio(work, audio_dir, total):
             bed = np.resize(drone, length) * 0.22
             add(game, dsp.fade(bed, 0.5, 0.5, sr=SR), t0)
 
+    # beds: the game's looping layers (heartbeat, breathing) that the film log doesn't capture
+    for (file, si, a, b, gain) in CUT.get("beds", []):
+        length = int((b - a) * SR)
+        x = dsp.fade(np.resize(load(file), length), 0.5, 0.6, sr=SR)
+        add(game, x, starts[si] + a, gain)
+
     # narration, with the game ducked under it
     with open(os.path.join(work, "vo", "narration.json")) as f:
         lines = {l["file"]: l for sec in json.load(f)["lines"].values() for l in sec}

@@ -1,0 +1,37 @@
+{
+  "segments": [
+    ["clip", "IT", 7.6, 7.0],
+    ["static", null, 0, 0.35],
+    ["slide", "problem", 0, 17.8],
+    ["slide", "built", 0, 20.2],
+    ["static", null, 0, 0.35],
+    ["clip", "watch", 0.0, 13.8],
+    ["static", null, 0, 0.35],
+    ["slide", "monad", 0, 17.9],
+    ["slide", "team", 0, 19.5],
+    ["slide", "next", 0, 9.9],
+    ["slide", "end", 0, 5.0]
+  ],
+  "overlays": [],
+  "voice": [
+    ["p_hook_0.wav", 0, 0.3],
+    ["p_problem_0.wav", 2, 0.5],
+    ["p_problem_1.wav", 2, 3.87],
+    ["p_problem_2.wav", 2, 10.9],
+    ["p_built_0.wav", 3, 0.5],
+    ["p_built_1.wav", 3, 3.76],
+    ["p_built_2.wav", 3, 13.34],
+    ["p_watch_0.wav", 5, 0.6],
+    ["p_watch_1.wav", 5, 8.87],
+    ["p_monad_0.wav", 7, 0.5],
+    ["p_monad_1.wav", 7, 3.37],
+    ["p_team_0.wav", 8, 0.5],
+    ["p_team_1.wav", 8, 7.34],
+    ["p_team_2.wav", 8, 13.64],
+    ["p_next_0.wav", 9, 0.5],
+    ["p_end_0.wav", 10, 0.6]
+  ],
+  "beds": [
+    ["heartbeat_fast_loop.mp3", 0, 1.8, 6.0, 0.6]
+  ]
+}

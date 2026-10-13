@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>HOLLOW pitch slides</title>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=VT323&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root { --paper: #efe6c4; --dim: #9a937c; --rec: #ff2b1c; --ok: #9fe09a; --mon: #a58cff; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #070605; color: var(--paper); font-family: Inter, sans-serif; }
+  .slide { position: absolute; inset: 0; display: none; padding: 70px 90px; background: radial-gradient(ellipse at 50% 40%, #16130e 0%, #070605 70%); }
+  .slide::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 3px); }
+  .slide.on { display: block; }
+  .kicker { font-family: VT323, monospace; font-size: 30px; letter-spacing: 0.18em; color: var(--dim); }
+  h1 { font-family: 'Special Elite', serif; font-weight: 400; font-size: 64px; letter-spacing: 0.04em; margin: 14px 0 34px; line-height: 1.1; }
+  ul { list-style: none; padding: 0; display: grid; gap: 22px; }
+  li { font-size: 30px; line-height: 1.32; color: #e2dabd; padding-left: 38px; position: relative; }
+  li::before { content: '▸'; position: absolute; left: 0; color: var(--rec); }
+  li b { color: #fff3cf; font-weight: 600; }
+  .mon li::before { color: var(--mon); }
+  .big { font-family: VT323, monospace; font-size: 48px; color: var(--mon); letter-spacing: 0.04em; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; margin-top: 10px; }
+  .card { border: 1px solid rgba(239,230,196,0.16); padding: 22px 24px; background: rgba(0,0,0,0.35); }
+  .card p { font-size: 22px; line-height: 1.35; color: #d9d1b5; margin-top: 8px; }
+  .rec { position: absolute; top: 34px; right: 50px; font-family: VT323, monospace; font-size: 28px; letter-spacing: 3px; color: var(--paper); }
+  .rec b { color: var(--rec); }
+  .end { display: none; padding: 0; text-align: center; }
+  .end.on { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .logo { font-family: 'Special Elite', serif; font-size: 150px; letter-spacing: 0.1em; text-shadow: 0 0 30px rgba(255,240,180,0.3); }
+  .tag { font-family: 'Special Elite', serif; font-size: 36px; color: var(--dim); margin-top: 8px; }
+  .url { font-family: VT323, monospace; font-size: 44px; color: var(--paper); margin-top: 46px; letter-spacing: 0.06em; }
+  .small { font-family: VT323, monospace; font-size: 28px; color: var(--dim); margin-top: 10px; letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+<section class="slide" id="problem">
+  <div class="rec"><b>●</b> REC</div>
+  <div class="kicker">THE PROBLEM</div>
+  <h1>Onchain games ask you to trust them.</h1>
+  <ul>
+    <li>The game runs on a <b>server</b>. Only the items live onchain.</li>
+    <li>Nobody can check <b>who really won</b>, or who really died.</li>
+    <li>The attention players and watchers give a game is <b>captured by a platform</b>, not paid back to them.</li>
+  </ul>
+</section>
+<section class="slide" id="built">
+  <div class="rec"><b>●</b> REC</div>
+  <div class="kicker">WHAT WE BUILT</div>
+  <h1>The game itself is onchain.</h1>
+  <ul>
+    <li><b>Every footstep</b> is a transaction: positions recorded every 0.6 s by a session key, no popups.</li>
+    <li><b>Body swaps</b> are seeded by block hashes: everyone swaps on the same block, anyone can verify.</li>
+    <li><b>Every touch, fuse and escape is proven</b> against both bodies' positions. No server decides who died.</li>
+    <li><b>Watchers pay to torment</b> the players. Every fee goes to whoever survives.</li>
+  </ul>
+</section>
+<section class="slide mon" id="monad">
+  <div class="rec"><b>●</b> REC</div>
+  <div class="kicker">WHY MONAD · WHY NOW</div>
+  <h1>Impossible until now.</h1>
+  <div class="grid">
+    <div class="card"><div class="big">300 ms</div><p>blocks: swaps land on the same block for everyone, torments land while you're still in that corridor.</p></div>
+    <div class="card"><div class="big">~65k gas</div><p>per move. Gas sized to Monad's limit billing, every call simulated first.</p></div>
+    <div class="card"><div class="big">parallel</div><p>Each body writes its own 128-slot storage page: players never touch each other's state.</p></div>
+  </div>
+</section>
+<section class="slide" id="team">
+  <div class="rec"><b>●</b> REC</div>
+  <div class="kicker">THE TEAM</div>
+  <h1>Archangel. One builder, one AI pair programmer.</h1>
+  <ul>
+    <li>Built during <b>Metropolis</b> with <b>Claude Code</b> (Anthropic) writing most of the code under our direction, disclosed in the README.</li>
+    <li>We <b>attacked our own contract</b>: 5 holes found and fixed, each with a regression test. <b>No admin keys.</b></li>
+    <li>Why: horror is the genre where <b>trust is the game</b>. Onchain, nobody can fake it.</li>
+  </ul>
+</section>
+<section class="slide" id="next">
+  <div class="rec"><b>●</b> REC</div>
+  <div class="kicker">NEXT</div>
+  <h1>From one night to a culture of nights.</h1>
+  <ul>
+    <li><b>Hidden roles</b> with commit-reveal, so nobody can read the Hollow from chain state.</li>
+    <li><b>Seasons and tournaments</b> on Monad mainnet, with the Haunted leaderboard as the ladder.</li>
+    <li>A <b>replay gallery</b>: the scariest nights, rebuilt from chain data, shared as links.</li>
+  </ul>
+</section>
+<section class="slide end" id="end">
+  <div class="logo">HOLLOW</div>
+  <div class="tag">something is wearing you.</div>
+  <div class="url">hollow-monad.vercel.app</div>
+  <div class="small">MONAD TESTNET · 0x5C4e…2957 · github.com/let-the-dreamers-rise/mon</div>
+</section>
+<script>
+  const id = location.hash.slice(1);
+  document.getElementById(id)?.classList.add('on');
+</script>
+</body>
+</html>

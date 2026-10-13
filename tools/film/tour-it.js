@@ -53,8 +53,12 @@
         s.hunt(now);
         player.flashlightOn = true;
       });
-    // the torch dies as it comes
-    if (t > 10.3) once('torch', () => (player.flashlightOn = false));
+    // the torch dies as it comes: it strobes, and you see IT in the flashes
+    if (t > 10.3 && t < 13.2) {
+      const k = Math.floor((t - 10.3) * 9);
+      player.flashlightOn = [1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0][k % 26] === 1;
+      s.lit = Math.min(s.lit, 0.4);
+    }
 
     // after the catch: the chain wakes you up somewhere else, in someone else
     if (t > 15.6)
