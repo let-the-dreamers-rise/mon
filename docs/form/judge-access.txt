@@ -1,0 +1,41 @@
+No account, no login, nothing to install. Everything runs in the browser at https://hollow-monad.vercel.app against Monad testnet (contract 0x5C4ef8456A07c61687d72827709Ff65569BB2957).
+
+Best on a desktop browser (Chrome, Edge or Firefox) with keyboard and mouse. Wear headphones; it's a horror game, and the sound is half of it. On a slower laptop, add ?quality=low to the URL.
+
+1) TWO MINUTES, NO WALLET: RECOVERED FOOTAGE
+On the title screen, press RECOVERED FOOTAGE. It replays night 3, rebuilt block by block from Monad testnet alone: the bodycams, the swaps, a real touch ("TOBIAS WAS TOUCHED · proven onchain"), fuses, voices and watchers' torments, all from chain data. The block number top right is the real testnet block. Any finished night can be opened the same way from the lobby (WATCH THE FOOTAGE) or with ?replay=1, 2 or 3.
+
+2) FIVE MINUTES, NO WALLET: WALK HALDEN ALONE
+On the title screen, press "or walk around Halden first". You wake up on Main Street.
+Controls:
+- WASD: move
+- Mouse: look (click the screen to lock the mouse; Esc releases it)
+- Shift: run
+- F: torch
+- M: map
+Follow the TRACKER at the top of the screen to a fuse box. Within a minute or so, something will stand at the end of the street: look away and it's closer. When it hunts, hold your torch on it, or run and break its line of sight. (This mode is local and costs nothing; it's the best way to feel the game.)
+
+3) A REAL NIGHT ON MONAD TESTNET (about 10 minutes)
+a. The title screen creates a session wallet in your browser (address shown under SESSION WALLET). It signs every step, so there are no popups while you play.
+b. Fund it with testnet MON. Either press "top up 1 MON from my wallet" (MetaMask or any injected wallet on Monad testnet), or copy the address into https://faucet.monad.xyz. 1 MON is about 6 minutes of walking; 2 MON covers a full night.
+c. Press PLAY A NIGHT, then OPEN A NEW NIGHT, then START NOW. The lights go out in about 6 seconds.
+d. Follow the tracker to the three fuse boxes (the Archive, St. Agnes Hospital, Halden Station). Stand next to each one; the game submits the proof. Then walk out through the bridge gate in the east, and claim the pot on the end screen.
+Playing alone, you are the only soul, so you won't be Hollow, and IT keeps you company. To play with others, share the night number and have them press JOIN before you press START NOW (up to 8 souls; with 2–5 souls one of you is Hollow, with 6 or more, two are).
+When you're done, press "withdraw all" to send the rest back to your wallet.
+
+4) WATCH AND TORMENT
+Open a night in one browser and the site in a second browser (or a private window: that's a second session wallet). In the second, press WATCH & TORMENT, pick the running night, switch bodycams, and pay 0.01 MON to kill the first player's lights or whisper, or 0.05 MON to force a swap. It lands in about 0.3 seconds. The fees go into the night's pot.
+
+HOW TO CHECK IT'S REALLY ONCHAIN
+- While you play, the bottom-right of the HUD lists your transactions as they land: record (movement), collectFuse, buy, escape. Each links to MonadVision. The top right shows "N STEPS ONCHAIN" and the confirmation latency.
+- The end screen lists every transaction hash of your night.
+- The lobby's Archive and the Haunted leaderboard are read straight from the contract.
+- To recompute a night's swaps from block hashes yourself: cd web && npm ci && node scripts/verify-shifts.mjs --rpc https://testnet-rpc.monad.xyz --hollow 0x5C4ef8456A07c61687d72827709Ff65569BB2957 --night 3
+- The contract tests: cd contracts && forge test (24 tests).
+
+IF SOMETHING GOES WRONG
+- "Your session wallet has no MON": fund it (step 3b). The lobby shows a card with the address and buttons.
+- A black or slow screen: try ?quality=low, or another browser with hardware acceleration on.
+- The faucet is empty or rate-limited: any testnet MON works; send it to the session address shown on the title screen.
+
+Repository: https://github.com/let-the-dreamers-rise/mon (README has local setup with Anvil, the security review, and the AI disclosure).
