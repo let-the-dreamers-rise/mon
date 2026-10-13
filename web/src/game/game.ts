@@ -392,7 +392,7 @@ export class Game {
       this.player.shake = 0.4;
     }
 
-    if (phase === 'over' && !this.over) this.finish(n);
+    if (phase === 'over' && !this.over) void this.finish(n);
   }
 
   private syncSentFor = 0;
@@ -558,10 +558,22 @@ export class Game {
     }
   }
 
-  private finish(n: NightState) {
+  private async finish(n: NightState) {
     this.over = true;
     this.player.enabled = false;
     document.exitPointerLock?.();
+    // the transaction that ends a night (the last escape or touch) can land before the souls are
+    // re-read: read them now so the ending is the one the chain recorded
+    if (this.mode === 'play' && this.mySoul >= 0) {
+      try {
+        await n.pollSouls();
+      } catch {
+        /* keep what we know */
+      }
+      const me = n.souls[this.mySoul];
+      if (me?.escapedRel) this.escaped = true;
+      else if (me?.hollowSince) this.wasHollow = true;
+    }
     const txs = this.wallet.sent.map((s) => ({ hash: s.hash, fn: s.fn }));
     this.onOver?.({ escaped: this.escaped, hollow: this.wasHollow, txs, night: n });
   }
