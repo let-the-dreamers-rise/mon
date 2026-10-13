@@ -121,8 +121,11 @@ Fisheye lens, scanlines, rolling bar, film grain, desaturated colour with a gree
 
 ## 12. Onchain spec (Monad)
 
-- Positions: one sample per body every 2 blocks (0.6 s), packed `x | y << 16` in cm, batched up to 8 per tx. Speed cap 4.2 m per sample, midpoint wall check, 40-block submission window.
+- Positions: one sample per body every 2 blocks (0.6 s), packed `x | y << 16` in cm, batched up to 8 per tx. Speed cap 4.2 m per sample, every hop probed for walls every 1.4 m, 16-block submission window. A gap means the body stood still; the sample that ends a gap may cover at most 8 samples' worth of ground.
+- Roles: the Hollow is drawn from the hash of the block before the night begins (unknown when `start()` is sent).
+- Gas: Monad bills the gas limit, so each move is sized to its measured cost (~65k gas for 4 samples). The town lives in the bytecode (immutables), and a move touches exactly two page-aligned storage regions: its night's record and its body's samples.
+- Replays: a finished night is rebuilt from `nights`, `getEpochs`, `getSouls`, `getSampleSlots` and the night's event logs, and played back through the bodycams.
 - Shifts: `keccak(blockhash(S−1), night, epoch)` seeds Sattolo's algorithm; next shift = S + 100 + seed % 150.
 - Proofs: `turn`, `collectFuse`, `escape`, `buy` are verified against recorded samples and the epoch's body→soul assignment.
-- Parallel-friendly storage: each body's samples live in their own slots, so different players' moves never touch the same storage and Monad can execute them in parallel.
+- Parallel-friendly storage: each body's samples live in their own page, so different players' moves never touch the same storage and Monad can execute them in parallel.
 - Economy: watcher torments and shop purchases → the night's pot; escaped souls claim equal shares; if nobody escapes, the souls that ended Hollow do. A lone soul with neither gets its own pot back. There is no other way out for MON.
