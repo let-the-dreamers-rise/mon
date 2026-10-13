@@ -66,7 +66,8 @@ export class Stalker {
     for (const e of this.eyes) {
       e.position.set(at.x + e.userData.x * Math.min(k, 1.6), at.y + 0.085, at.z - 0.115);
       e.scale.setScalar(k);
-      e.visible = true;
+      // a glint from a distance; up close there is only the band
+      e.visible = this.distance > 2.5;
     }
   }
 

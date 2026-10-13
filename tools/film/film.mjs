@@ -110,6 +110,8 @@ await page.waitForTimeout(3000);
 await page.evaluate(() => window.__film.start());
 // a replay starts from its first block on the first film frame, not when it finished loading
 await page.evaluate(() => window.__replay?.play(performance.now()));
+// a scripted tour starts its own clock here too
+await page.evaluate(() => window.__tourGo?.(performance.now()));
 const t0 = await page.evaluate(() => window.__film.t);
 // optionally fast-forward (a rendered frame every 500 ms of footage)
 const skip = Number(args.skip ?? 0);

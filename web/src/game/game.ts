@@ -200,8 +200,10 @@ export class Game {
       else this.player.update(dt);
       this.hud.roam(this.player, now);
       this.town.update(now, dt);
-      this.stalker.update(now, dt, !tour && !this.jumpscare);
-      this.psych.update(now, dt, this.stalker.distance, false, !!tour);
+      // a filmed tour keeps IT and the fear layer only if it asks for them (tools/film/tour-it.js)
+      const withIt = !tour || !!(window as unknown as { __tourIT?: boolean }).__tourIT;
+      this.stalker.update(now, dt, withIt && !this.jumpscare);
+      this.psych.update(now, dt, this.stalker.distance, false, !withIt);
       this.animateJumpscare(now, dt);
     } else this.idleCamera(now);
     this.world.update(now, dt, this.mode === 'watch' ? this.watchCam.position : this.player.yawObj.position, 1 - this.psych.sanity);

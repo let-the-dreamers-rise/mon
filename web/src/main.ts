@@ -13,7 +13,8 @@ const show = (id: string) => ['title', 'lobby', 'end'].forEach((s) => $(s).class
 
 const wallet = new Burner();
 const game = new Game($('view') as HTMLCanvasElement, wallet);
-if (import.meta.env.DEV) (window as unknown as { __hollow: Game }).__hollow = game;
+// the dev build and the film harness (tools/film, ?film=1) can reach into the game
+if (import.meta.env.DEV || new URLSearchParams(location.search).has('film')) (window as unknown as { __hollow: Game }).__hollow = game;
 let mode: 'play' | 'watch' = 'play';
 let selected: bigint | null = null;
 let entered = false;
