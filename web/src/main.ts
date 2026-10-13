@@ -257,8 +257,10 @@ async function enterReplay(id: bigint) {
     const speed = Number(new URLSearchParams(location.search).get('speed') ?? 1);
     if (speed > 0) rn.speed = speed;
     await game.enter(rn, 'replay', -1);
-    rn.play();
-    (window as unknown as { __replayReady?: boolean }).__replayReady = true;
+    // &film=1: hold on the first block until the film harness starts the footage
+    if (!new URLSearchParams(location.search).has('film')) rn.play();
+    // tools/film restarts the footage on its first frame (rn.play) so loading time isn't skipped
+    Object.assign(window as unknown as Record<string, unknown>, { __replay: rn, __replayReady: true });
   } catch (e) {
     toast(String((e as Error).message ?? e).slice(0, 160), 8000);
     entered = false;

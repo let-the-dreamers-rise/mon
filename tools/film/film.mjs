@@ -108,6 +108,8 @@ if (args.tour) await page.evaluate(readFileSync(args.tour, 'utf8'));
 // let the first real frames settle (shaders compiled, textures uploaded)
 await page.waitForTimeout(3000);
 await page.evaluate(() => window.__film.start());
+// a replay starts from its first block on the first film frame, not when it finished loading
+await page.evaluate(() => window.__replay?.play(performance.now()));
 const t0 = await page.evaluate(() => window.__film.t);
 // optionally fast-forward (cheap: logic only, a frame every 100ms)
 const skip = Number(args.skip ?? 0);
