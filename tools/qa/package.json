@@ -1,0 +1,7 @@
+{
+  "name": "hollow-qa",
+  "private": true,
+  "type": "module",
+  "description": "Browser end-to-end checks for HOLLOW against a local chain",
+  "dependencies": { "playwright": "^1.47.2" }
+}
