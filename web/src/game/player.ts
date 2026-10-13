@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { flashlightCookie } from './textures';
-import { HEIGHT, isSolidAt } from './world';
+import { BODY_RADIUS as RADIUS, HEIGHT, isSolidAt, slideOffProps } from './world';
 
-const RADIUS = 0.28;
 const EYE = 1.62;
 const WALK = 2.3;
 const SPRINT = 4.3;
@@ -134,7 +133,10 @@ export class Player {
     let z = this.position.z;
     if (free(nx, z)) x = nx;
     if (free(x, nz)) z = nz;
-    return [x, z];
+    // then around the props; a slide that would end in a wall stops instead
+    const [sx, sz] = slideOffProps(this.position.x, this.position.z, x, z);
+    if (sx === x && sz === z) return [x, z];
+    return free(sx, sz) ? [sx, sz] : [this.position.x, this.position.z];
   }
 
   update(dt: number, opts: { speedScale?: number } = {}) {

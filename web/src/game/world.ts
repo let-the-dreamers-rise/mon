@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CELL_CM, GRID } from '../config';
 import map from '../map.json';
-import { applyPbr, ModelInstances } from './assets';
+import { applyPbr, loadModel, ModelInstances } from './assets';
 import { carpet, ceiling, label, litWindow, roughness, wallpaper } from './textures';
 
 export const CELL = CELL_CM / 100; // 3 m
@@ -35,6 +35,136 @@ export function openYaw(cell: number[]): number {
     }
   }
   return best;
+}
+
+/** half the width of a body: walls and props keep its centre this far away */
+export const BODY_RADIUS = 0.28;
+
+/** props you can't walk through, as circles on the floor, bucketed by the cell of their centre */
+interface Blocker {
+  x: number;
+  z: number;
+  r: number;
+}
+let blockerCells = new Map<number, Blocker[]>();
+let blockerCount = 0;
+export const propBlockers = () => [...blockerCells.values()].flat();
+
+/**
+ * Moves a body from (px, pz) to (x, z) without passing through props: a step that would end
+ * inside one slides along its edge instead. A body already inside a prop (a swap or the chain put
+ * it there) is let out rather than trapped.
+ */
+export function slideOffProps(px: number, pz: number, x: number, z: number): [number, number] {
+  if (!blockerCount) return [x, z];
+  for (let pass = 0; pass < 3; pass++) {
+    const cx = Math.floor(x / CELL), cy = Math.floor(z / CELL);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const list = blockerCells.get((cy + dy) * GRID + cx + dx);
+      if (!list) continue;
+      for (const b of list) {
+        const R = b.r + BODY_RADIUS;
+        const ox = x - b.x, oz = z - b.z;
+        const d2 = ox * ox + oz * oz;
+        // a body resting on the edge was put there by the last slide, so it counts as outside
+        if (d2 >= R * R || (px - b.x) ** 2 + (pz - b.z) ** 2 < (R - 0.03) ** 2) continue;
+        const d = Math.sqrt(d2);
+        if (d < 1e-6) continue;
+        x = b.x + (ox / d) * (R + 1e-3);
+        z = b.z + (oz / d) * (R + 1e-3);
+      }
+    }
+  }
+  return [x, z];
+}
+
+/**
+ * Drops the props that would cut part of the town off. The map is sampled every 25 cm; any open
+ * pocket bigger than a body needs, reachable past the walls but not past the props, frees the props
+ * around it, and so does any spawn, fuse, exit or shop door a prop sits on. Repeats until nothing
+ * is cut off.
+ */
+function keepPassable(list: Blocker[]): Blocker[] {
+  const S = 0.25, N = Math.ceil((GRID * CELL) / S), R = BODY_RADIUS;
+  const at = (i: number): [number, number] => [((i % N) + 0.5) * S, (Math.floor(i / N) + 0.5) * S];
+  const open = new Uint8Array(N * N);
+  for (let i = 0; i < N * N; i++) {
+    const [x, z] = at(i);
+    open[i] = !isSolidAt(x - R, z - R) && !isSolidAt(x + R, z - R) && !isSolidAt(x - R, z + R) && !isSolidAt(x + R, z + R) ? 1 : 0;
+  }
+  const sample = ([cx, cy]: number[]) => Math.floor(((cy + 0.5) * CELL) / S) * N + Math.floor(((cx + 0.5) * CELL) / S);
+  const must = [...map.spawnCells, ...map.fuseCells, map.exitCell, ...map.shops.map((s) => s.door)].map(sample);
+  const flood = (ok: (i: number) => boolean) => {
+    const seen = new Uint8Array(N * N);
+    const queue = new Int32Array(N * N);
+    let head = 0, tail = 0;
+    for (const i of map.spawnCells.map(sample)) if (ok(i) && !seen[i]) (seen[i] = 1), (queue[tail++] = i);
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % N;
+      for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, i - N, i + N]) {
+        if (j < 0 || j >= N * N || seen[j] || !ok(j)) continue;
+        seen[j] = 1;
+        queue[tail++] = j;
+      }
+    }
+    return seen;
+  };
+  const reachable = flood((i) => open[i] === 1);
+  let alive = list;
+  for (let round = 0; round < 10; round++) {
+    const owner = new Int32Array(N * N).fill(-1);
+    alive.forEach((b, k) => {
+      const rr = b.r + R + 0.04;
+      const x0 = Math.max(0, Math.floor((b.x - rr) / S)), x1 = Math.min(N - 1, Math.floor((b.x + rr) / S));
+      const z0 = Math.max(0, Math.floor((b.z - rr) / S)), z1 = Math.min(N - 1, Math.floor((b.z + rr) / S));
+      for (let gz = z0; gz <= z1; gz++) for (let gx = x0; gx <= x1; gx++) {
+        const i = gz * N + gx;
+        const [x, z] = at(i);
+        if ((x - b.x) ** 2 + (z - b.z) ** 2 < rr * rr) owner[i] = k;
+      }
+    });
+    const reach = flood((i) => open[i] === 1 && owner[i] < 0);
+    const drop = new Set<number>();
+    for (const i of must) if (owner[i] >= 0) drop.add(owner[i]);
+    // pockets of open floor the props cut off
+    const done = new Uint8Array(N * N);
+    for (let i0 = 0; i0 < N * N; i0++) {
+      if (done[i0] || !reachable[i0] || reach[i0] || owner[i0] >= 0) continue;
+      const pocket: number[] = [i0];
+      const around = new Set<number>();
+      done[i0] = 1;
+      for (let h = 0; h < pocket.length; h++) {
+        const i = pocket[h];
+        const x = i % N;
+        for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, i - N, i + N]) {
+          if (j < 0 || j >= N * N || done[j] || !reachable[j]) continue;
+          if (owner[j] >= 0) {
+            around.add(owner[j]);
+            continue;
+          }
+          done[j] = 1;
+          pocket.push(j);
+        }
+      }
+      if (pocket.length >= 24 || pocket.some((i) => must.includes(i))) for (const k of around) drop.add(k);
+    }
+    if (!drop.size) break;
+    alive = alive.filter((_, k) => !drop.has(k));
+  }
+  return alive;
+}
+
+function setBlockers(list: Blocker[]) {
+  const cells = new Map<number, Blocker[]>();
+  for (const b of list) {
+    const key = Math.floor(b.z / CELL) * GRID + Math.floor(b.x / CELL);
+    let l = cells.get(key);
+    if (!l) cells.set(key, (l = []));
+    l.push(b);
+  }
+  blockerCells = cells;
+  blockerCount = list.length;
 }
 
 /** which named place a point is in, for the HUD */
@@ -178,6 +308,7 @@ export class World {
   private flashes: { light: THREE.PointLight; t: number }[] = [];
   private propObjs: THREE.Object3D[] = [];
   private lampMatrices: THREE.Matrix4[] = [];
+  private treeSpots: THREE.Vector3[] = [];
   private standInLamps: THREE.Object3D[] = [];
   onThunder?: () => void;
 
@@ -544,6 +675,7 @@ export class World {
     for (let y = 0; y < GRID; y++) for (let x = 0; x < GRID; x++) {
       if (rows[y][x] !== 'T') continue;
       const c = cellCenter([x, y]);
+      this.treeSpots.push(c);
       const m = new THREE.Matrix4().compose(c, new THREE.Quaternion().setFromAxisAngle(UP, Math.random() * 6.28), new THREE.Vector3(1, 0.9 + Math.random() * 0.4, 1));
       trees[(x + y) % 3].push(m);
     }
@@ -694,6 +826,50 @@ export class World {
       this.instances.push(lamps);
       for (const m of this.standInLamps) m.visible = false;
     }
+    await this.buildBlockers(place, stones);
+  }
+
+  /**
+   * Gives the props bodies: each model's footprint becomes a row of circles along its long side.
+   * Flat, small or wall-mounted things stay walk-through, and anything that would cut off part of
+   * the town is dropped (see keepPassable).
+   */
+  private async buildBlockers(place: Record<string, THREE.Matrix4[]>, stones: { cell: number[] }[]) {
+    const ghosts = new Set(['water_manhole_cover', 'trashbag', 'security_camera_01', 'large_iron_gate', 'vintage_crutches_01', 'WetFloorSign_01', 'CashRegister_01']);
+    const list: Blocker[] = [];
+    const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scale = new THREE.Vector3(), v = new THREE.Vector3();
+    for (const [id, ms] of Object.entries(place)) {
+      if (ghosts.has(id)) continue;
+      const model = await loadModel(id);
+      if (!model) continue;
+      const box = new THREE.Box3().setFromObject(model);
+      const w = box.max.x - box.min.x, d = box.max.z - box.min.z;
+      const mx = (box.min.x + box.max.x) / 2, mz = (box.min.z + box.max.z) / 2;
+      for (const m of ms) {
+        m.decompose(pos, quat, scale);
+        if (pos.y > 0.4) continue;
+        const k = scale.x;
+        const long = Math.max(w, d) * k;
+        const r = THREE.MathUtils.clamp((Math.min(w, d) * k) / 2 * 0.9, 0.12, 0.95);
+        const reach = Math.max(0, long / 2 - r);
+        const n = reach > 0 ? Math.ceil((2 * reach) / r) + 1 : 1;
+        for (let i = 0; i < n; i++) {
+          const t = n === 1 ? 0 : -reach + (2 * reach * i) / (n - 1);
+          v.set(w >= d ? mx * k + t : mx * k, 0, w >= d ? mz * k : mz * k + t).applyQuaternion(quat);
+          list.push({ x: pos.x + v.x, z: pos.z + v.z, r });
+        }
+      }
+    }
+    for (const p of stones) {
+      const c = cellCenter(p.cell);
+      list.push({ x: c.x, z: c.z, r: 0.3 });
+    }
+    for (const c of this.treeSpots) list.push({ x: c.x, z: c.z, r: 0.3 });
+    for (const m of this.lampMatrices) {
+      pos.setFromMatrixPosition(m);
+      list.push({ x: pos.x, z: pos.z, r: 0.16 });
+    }
+    setBlockers(keepPassable(list));
   }
 
   // ------------------------------------------------------------------ fuse boxes, the bridge gate
