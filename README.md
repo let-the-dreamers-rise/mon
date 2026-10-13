@@ -2,6 +2,10 @@
 
 **An open-world, body-swap psychological horror game where every footstep is a Monad transaction.**
 
+![Recovered footage of night 3 on Monad testnet: MARA is touched at the 24/7 Mart, block 70,634,810](docs/media/touched.webp)
+
+*Recovered footage of night 3, rebuilt from Monad testnet data: MARA is touched at the 24/7 Mart (block 70,634,810, proven onchain) and becomes Hollow, still wearing the same body.*
+
 Up to eight souls wake up in Halden, an abandoned company town at night. Every 30–75 seconds the Monad chain reshuffles who is wearing whom: you wake up in someone else's body, with someone else's name on your chest and someone else's things in your pockets, while a stranger walks around in yours. One of you is **Hollow**. It turns whoever it touches, and they become Hollow too. Find three fuses, power the bridge gate, get out.
 
 Spectators ("watchers") can open any running night, switch between everyone's bodycams, and pay MON to torment the players: kill the lights, whisper, scream, force an early swap. Every fee and every shop purchase goes into the night's pot. The souls who escape split it, and if nobody escapes, the Hollow keeps it.
