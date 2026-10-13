@@ -178,9 +178,10 @@ export class Game {
       this.pollAt = now + Math.max(220, n.msPerBlock * 0.9);
       void n.poll().then(() => this.afterPoll(now)).catch(() => undefined);
     }
-    if (n && this.started) this.step(now, dt, n);
-    if (n && this.started && this.mode === 'replay') this.replayCam(now, dt, n);
-    else if (this.roaming) {
+    if (n && this.started) {
+      this.step(now, dt, n);
+      if (this.mode === 'replay') this.replayCam(now, dt, n);
+    } else if (this.roaming) {
       // the film harness can drive the camera along a scripted path
       const tour = (window as unknown as { __tour?: (now: number, dt: number, p: Player) => void }).__tour;
       if (tour) tour(now, dt, this.player);
