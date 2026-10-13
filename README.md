@@ -14,6 +14,15 @@ Spectators ("watchers") can open any running night, switch between everyone's bo
 
 ---
 
+## Track 03 — Social, Attention & Culture
+
+| The track asks for | HOLLOW |
+| --- | --- |
+| **Competitive feeds** | **The Archive** lists every finished night with its outcome: who was the Hollow, who was turned, who got out, who took the pot. **The Haunted** ranks souls by MON won, wins, escapes and nights spent Hollow. Both are read straight from the contract. |
+| **Attention that turns into ownership** | Watchers pay MON to torment players they are watching. Every fee and every shop sale goes into the night's pot, and the contract pays it to the winners. Spectators' attention becomes the players' money, with no platform in between. |
+| **Cultural participation** | Every night is permanent and can be watched again, rebuilt from chain data as recovered bodycam footage, and shared as a link (`?replay=<night>`). The end screen has **COPY FOOTAGE LINK**. |
+| **Open social graph** | Names, souls, bodies and outcomes are public contract state. Anyone can build on them, and the leaderboard is one example. |
+
 ## Why this only works on Monad
 
 | What HOLLOW does | Why it needs Monad |
