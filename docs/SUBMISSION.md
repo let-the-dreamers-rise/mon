@@ -8,7 +8,7 @@ Deadline: **Oct 13, 2026, 11:59 PM ET** (Oct 14, 03:59 UTC · 9:29 AM IST).
 | MIT license | ✅ `LICENSE` |
 | README with setup instructions | ✅ `README.md` (setup, Monad testnet, bots, replays, security) |
 | AI-use disclosure | ✅ README → *AI disclosure* |
-| Demo video ≤ 3 min | ✅ `hollow-demo.mp4` (2:40), rendered from the game itself (see `tools/film`). Upload it (YouTube unlisted or similar) and paste the link |
+| Demo video ≤ 3 min | ✅ `hollow-demo.mp4` (2:51), rendered from the game itself (see `tools/film`). Upload it (YouTube unlisted or similar) and paste the link |
 | Deployed on Monad testnet, contract address | ✅ `0x5C4ef8456A07c61687d72827709Ff65569BB2957` (chain 10143) |
 | Playable link | ⚠️ enable GitHub Pages (below) → `https://let-the-dreamers-rise.github.io/mon/` |
 
