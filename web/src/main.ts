@@ -341,6 +341,16 @@ game.onOver = ({ escaped, hollow, txs, night }) => {
       .reverse()
       .map((t) => (NET.explorer ? `<a href="${NET.explorer}/tx/${t.hash}" target="_blank" rel="noopener">${t.fn} ${t.hash}</a>` : `<span>${t.fn} ${t.hash}</span>`))
       .join('');
+  // every night stays on chain: anyone can watch it again from a link
+  $('btn-share').onclick = async () => {
+    const url = `${location.origin}${location.pathname}?replay=${night.id}${IS_LOCAL ? '&local=1' : ''}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('link copied: the footage of this night, rebuilt from Monad');
+    } catch {
+      toast(url, 8000);
+    }
+  };
   // the winners split the pot: whoever escaped, or, if nobody did, everyone the Hollow wore
   $('btn-claim').classList.add('hidden');
   const soul = game.mySoul;
@@ -367,7 +377,7 @@ game.onOver = ({ escaped, hollow, txs, night }) => {
     }
   };
 };
-$('btn-again').onclick = () => location.reload();
+$('btn-again').onclick = () => location.replace(location.pathname + (IS_LOCAL ? '?local=1' : ''));
 
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
