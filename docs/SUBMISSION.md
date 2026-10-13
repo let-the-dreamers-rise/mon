@@ -39,7 +39,9 @@ the chain decides who is wearing whom.
 Up to eight souls wake up in Halden, an abandoned company town at night. Every 30–75 seconds Monad
 reshuffles who is wearing whom: you wake up in someone else's body, with their name on your wrist
 and their things in your pockets. One of you is Hollow, and whatever it touches turns. Collect
-three fuses, power the bridge gate, get out.
+three fuses (the bodycam's tracker leads the way), power the bridge gate, get out. Every body
+feels different: height, a bad knee, shaking hands. When you're alone, something stands at the end of
+the street, and it is closer every time you look away.
 
 Every body's position is written onchain every 2 blocks (0.6 s) by a session key in the browser.
 Swaps are seeded by block hashes, so every client swaps on the same block and anyone can verify it.

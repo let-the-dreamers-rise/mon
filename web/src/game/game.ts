@@ -6,8 +6,9 @@ import { Hud } from '../ui/hud';
 import { Audio } from './audio';
 import { Figure, SKINS, SUITS } from './figures';
 import { Fx } from './fx';
-import { Player } from './player';
+import { PHYSIQUES, Player } from './player';
 import { Psych } from './psych';
+import { Stalker } from './stalker';
 import { World, openYaw, CELL } from './world';
 import { Town } from './town';
 import { loadEnvironment } from './assets';
@@ -30,6 +31,7 @@ export class Game {
   readonly fx: Fx;
   readonly audio: Audio;
   readonly psych: Psych;
+  readonly stalker: Stalker;
   readonly hud: Hud;
   night: NightState | null = null;
   pilot: Pilot | null = null;
@@ -59,6 +61,7 @@ export class Game {
   private introDone = false;
   private shiftWarned = 0;
   private countingDown = false;
+  private briefed = false;
   private originalLost = false;
   private pixelRatio = 1;
   private frameTimes: number[] = [];
@@ -95,6 +98,12 @@ export class Game {
     this.player.camera.add(this.audio.listener);
     this.fx = new Fx(this.renderer, this.scene, this.player.camera);
     this.psych = new Psych(this.scene, this.player, this.world, this.audio, this.fx);
+    this.stalker = new Stalker(this.scene, this.player, this.world, this.audio);
+    this.stalker.onHint = (text) => {
+      this.hud.feed(text);
+      this.hud.subtitle(text);
+    };
+    this.stalker.onCatch = () => this.caught();
     this.hud = new Hud();
     this.town = new Town(this);
     this.world.onThunder = () => this.audio.thunder();
@@ -137,6 +146,8 @@ export class Game {
     this.hud.show('play');
     this.player.enabled = true;
     this.player.teleport((cell[0] + 0.5) * CELL, (cell[1] + 0.5) * CELL, openYaw(cell));
+    this.player.wake(this.player.physique);
+    this.fx.eyelids = 1;
   }
 
   // ------------------------------------------------------------------ entering
@@ -164,6 +175,7 @@ export class Game {
     this.player.teleport(sx, sz, openYaw([Math.floor(sx / CELL), Math.floor(sz / CELL)]));
     this.hud.showControls(25000);
     this.player.wear(SUITS[Math.max(soul, 0) % 8], SKINS[Math.max(soul, 0) % 8]);
+    this.player.physique = PHYSIQUES[Math.max(soul, 0) % 8];
     this.started = true;
   }
 
@@ -186,8 +198,11 @@ export class Game {
       const tour = (window as unknown as { __tour?: (now: number, dt: number, p: Player) => void }).__tour;
       if (tour) tour(now, dt, this.player);
       else this.player.update(dt);
+      this.hud.roam(this.player, now);
       this.town.update(now, dt);
-      this.psych.update(now, dt, 99, false, true);
+      this.stalker.update(now, dt, !tour && !this.jumpscare);
+      this.psych.update(now, dt, this.stalker.distance, false, !!tour);
+      this.animateJumpscare(now, dt);
     } else this.idleCamera(now);
     this.world.update(now, dt, this.mode === 'watch' ? this.watchCam.position : this.player.yawObj.position, 1 - this.psych.sanity);
     this.fx.update(now, dt);
@@ -249,11 +264,19 @@ export class Game {
       // clear the countdown once; later messages (touched, hollow, got out) must stay up
       this.countingDown = false;
       this.hud.center('');
+      if (this.mode === 'play') {
+        this.player.wake(this.player.physique);
+        this.fx.eyelids = 1;
+      }
     }
 
     const myBody = this.pilot?.body ?? -1;
     const soul = this.mySoul;
     const hollow = soul >= 0 && n.isHollowAt(soul, est);
+    if (this.mode === 'play' && phase === 'night' && !this.briefed && soul >= 0) {
+      this.briefed = true;
+      this.hud.brief(n.souls[soul]?.name ?? 'nobody', hollow);
+    }
 
     if (this.mode === 'play' && this.pilot && phase === 'night' && !this.escaped) {
       const pos = { x: this.player.position.x * 100, y: this.player.position.z * 100 };
@@ -345,28 +368,13 @@ export class Game {
 
     // psychology
     this.psych.names = n.souls.filter((_, i) => i !== soul).map((s) => s.name);
-    this.psych.update(now, dt, nearest, hollow, this.town.visionsSuppressed);
+    const others = n.header ? Math.max(0, n.header.living - 1) : 0;
+    this.stalker.update(now, dt, this.mode === 'play' && phase === 'night' && !hollow && !this.dead && !this.escaped && !this.jumpscare, 1 + others * 0.3);
+    this.psych.update(now, dt, Math.min(nearest, this.stalker.distance), hollow, this.town.visionsSuppressed);
     this.town.update(now, dt);
     this.fx.hollow += ((hollow ? 1 : 0) - this.fx.hollow) * Math.min(1, dt * 2);
 
-    // jumpscare animation
-    if (this.jumpscare) {
-      const js = this.jumpscare;
-      js.t += dt;
-      const cam = this.player.camera;
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion()));
-      const eye = cam.getWorldPosition(new THREE.Vector3());
-      const dist = Math.max(0.25, 2.2 - js.t * 6);
-      const at = eye.clone().addScaledVector(fwd, dist);
-      js.fig.heading = Math.atan2(fwd.x, fwd.z);
-      js.fig.update(now, dt, at.x, at.z, 0, 0);
-      js.fig.root.position.y = eye.y - 1.65;
-      js.fig.root.rotation.y = js.fig.heading;
-      if (js.t > 1.1) {
-        this.scene.remove(js.fig.root);
-        this.jumpscare = null;
-      }
-    }
+    this.animateJumpscare(now, dt);
 
     // hud
     this.hud.update({
@@ -488,6 +496,49 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ moments
+
+  private animateJumpscare(now: number, dt: number) {
+    if (this.jumpscare) {
+      const js = this.jumpscare;
+      js.t += dt;
+      const cam = this.player.camera;
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion()));
+      const eye = cam.getWorldPosition(new THREE.Vector3());
+      const dist = Math.max(0.25, 2.2 - js.t * 6);
+      const at = eye.clone().addScaledVector(fwd, dist);
+      js.fig.heading = Math.atan2(fwd.x, fwd.z);
+      js.fig.update(now, dt, at.x, at.z, 0, 0);
+      js.fig.root.position.y = eye.y - 1.65;
+      js.fig.root.rotation.y = js.fig.heading;
+      if (js.t > 1.1) {
+        this.scene.remove(js.fig.root);
+        this.jumpscare = null;
+      }
+    }
+  }
+
+  /** IT reached you: it is not onchain and cannot turn you, but your nerve and your torch go */
+  private caught() {
+    const fig = new Figure(7, '', false);
+    fig.setTorch(false);
+    fig.root.scale.set(1.06, 1.2, 1.06);
+    this.scene.add(fig.root);
+    this.jumpscare = { fig, t: 0 };
+    setTimeout(() => fig.reach(), 30);
+    void this.audio.play('jumpscare_sting.mp3', 1);
+    this.fx.staticBurst = 0.6;
+    this.fx.tearBurst = 1;
+    this.player.shake = 2.2;
+    this.audio.duck(1.6);
+    this.psych.hit(0.35);
+    this.player.flashlightOn = false;
+    this.player.battery = Math.min(this.player.battery, 0.5);
+    setTimeout(() => {
+      this.hud.subtitle('it was not real. your torch went out anyway. (F)');
+      this.fx.eyelids = 0.8;
+    }, 1300);
+  }
+
   private onSwap(n: NightState, body: number, est: number) {
     this.fx.swap();
     this.audio.shift();
@@ -499,8 +550,13 @@ export class Game {
     this.player.teleport(cmToM(rp.x), cmToM(rp.y), openYaw([Math.floor(cmToM(rp.x) / CELL), Math.floor(cmToM(rp.y) / CELL)]) + (Math.random() - 0.5) * 1.2);
     this.player.pitchObj.rotation.x = 0;
     this.player.wear(SUITS[body % 8], SKINS[body % 8]);
+    const ph = PHYSIQUES[body % 8];
+    this.player.wake(ph);
+    this.fx.eyelids = 1;
+    this.psych.fear = 1;
     this.hud.scrambleCam(2600);
     this.hud.feed('SIGNAL REACQUIRED');
+    setTimeout(() => this.hud.subtitle(ph.feel), 1500);
   }
 
   private onTurned(n: NightState, est: number) {
@@ -671,6 +727,7 @@ export class Game {
       const inside = n.souls[soul]?.name ?? '??';
       this.hud.feed(soul === this.watchBody ? `CAM ${String(this.watchBody + 1).padStart(2, '0')} · ${owner}` : `CAM ${String(this.watchBody + 1).padStart(2, '0')} · ${owner}'s body · worn by ${inside}`);
       this.player.wear(SUITS[this.watchBody % 8], SKINS[this.watchBody % 8]);
+      this.player.physique = PHYSIQUES[this.watchBody % 8];
     }
   }
 

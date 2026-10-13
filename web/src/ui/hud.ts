@@ -3,6 +3,7 @@ import type { NightState, Pilot } from '../chain/night';
 import type { Mode } from '../game/game';
 import type { Player } from '../game/player';
 import type { Psych } from '../game/psych';
+import { bodyTarget, FUSES, GATE, nearest, steer, type Target } from './tracker';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -112,6 +113,54 @@ export class Hud {
     while (this.txEl.children.length > 6) this.txEl.lastChild?.remove();
   }
 
+  /** free walk: no night, nobody else; the tracker shows the way to the nearest fuse room */
+  roam(player: Player, now: number) {
+    if (now - this.lastUpdate < 90) return;
+    this.lastUpdate = now;
+    $('objective').textContent = 'FREE WALK · FIND THE THREE FUSE BOXES';
+    $('clock').textContent = 'NO NIGHT RUNNING';
+    $('living').textContent = '';
+    const bars = Math.min(5, Math.max(0, Math.ceil(player.battery * 5) || 0));
+    $('battery').textContent = '▮'.repeat(bars) + '▯'.repeat(5 - bars);
+    ($('stamina') as HTMLElement).style.width = `${Math.round(player.stamina * 100)}%`;
+    this.track(nearest(FUSES, player.position.x, player.position.z), player, false, now);
+  }
+
+  private track(t: Target | null, player: Player, noisy: boolean, now: number) {
+    const el = $('guide');
+    const g = t && steer(t, player.position.x, player.position.z, player.yaw);
+    el.classList.toggle('hidden', !g);
+    if (!t || !g) return;
+    // fear and fresh swaps make the tracker lie a little
+    const jitter = noisy ? Math.sin(now / 37) * 1.4 + (Math.random() - 0.5) * 1.2 : 0;
+    $('guide-arrow').style.transform = `rotate(${g.bearing + jitter}rad)`;
+    const here = g.metres < 4;
+    const dist = noisy ? `${glyphs(2)}m` : here ? 'HERE' : `${Math.round(g.metres)} m`;
+    $('guide-text').textContent = t.what ? `${t.name} · ${t.what} · ${dist}` : `${t.name} · ${dist}`;
+    el.classList.toggle('here', here && !noisy);
+    el.classList.toggle('noisy', noisy);
+  }
+
+  /** the rules, once, as the lights go out */
+  brief(name: string, hollow: boolean) {
+    const el = $('brief');
+    $('brief-who').textContent = hollow ? `YOU ARE ${name.toUpperCase()} — AND YOU ARE HOLLOW` : `YOU ARE ${name.toUpperCase()}`;
+    $('brief-steps').innerHTML = hollow
+      ? '<li>Get within arm\'s reach of a living body: it turns, and it is yours.</li><li>Nobody can tell who you are. Walk with them. Help them, even.</li><li>The <b>tracker</b> at the top points at the nearest living body.</li><li>If nobody escapes before dawn, the Hollow keep the pot.</li>'
+      : '<li>Follow the <b>tracker</b> at the top to a <b>fuse box</b>. Stand next to it.</li><li>Three fuses power the <b>bridge gate</b>. Walk out through it to win the pot.</li><li>Every 30–75 s you wake up in someone else\'s body. <b>Look down</b> at your wrist to see whose.</li><li>One of you is <b>Hollow</b>. If it touches you, you turn. It looks like anyone.</li>';
+    el.classList.remove('hidden', 'fade');
+    this.root.classList.add('briefing');
+    clearTimeout(this.briefTimer);
+    this.briefTimer = window.setTimeout(() => el.classList.add('fade'), 14000);
+    this.briefTimer2 = window.setTimeout(() => {
+      el.classList.add('hidden');
+      this.root.classList.remove('briefing');
+    }, 15500);
+  }
+
+  private briefTimer = 0;
+  private briefTimer2 = 0;
+
   originalLost() {
     this.lost = true;
   }
@@ -143,11 +192,30 @@ export class Hud {
     $('objective').textContent = objective;
     $('objective').classList.toggle('hollow', s.hollow);
 
+    // the tracker: survivors are led to the nearest fuse still dark, then to the gate; the Hollow
+    // is led to the nearest living body
+    let target: Target | null = null;
+    const px = s.player.position.x, pz = s.player.position.z;
+    if (s.mode === 'play' && h.startBlock && s.est >= h.startBlock) {
+      if (s.hollow) {
+        let best = Infinity;
+        const at = n.indexAtBlock(s.est) - 1;
+        for (let b = 0; b < h.nSouls; b++) {
+          if (b === s.myBody || n.bodyGone(b) || !n.isLivingAt(n.soulInBody(b, s.est), s.est)) continue;
+          const rp = n.renderPosition(b, at);
+          const d = Math.hypot(rp.x / 100 - px, rp.y / 100 - pz);
+          if (d < best) (best = d), (target = bodyTarget('THE LIVING', rp.x / 100, rp.y / 100));
+        }
+      } else if (h.exitOpenBlock) target = GATE;
+      else target = nearest(FUSES.filter((_, i) => !(h.fuses & (1 << i))), px, pz);
+    }
+    this.track(target, s.player, scrambling || s.psych.fear > 0.75, s.now);
+
     $('watchers').textContent = `${s.watchers} WATCHING`;
     $('living').textContent = `${h.living} LIVING`;
 
     // battery + stamina
-    const bars = Math.ceil(s.player.battery * 5);
+    const bars = Math.min(5, Math.max(0, Math.ceil(s.player.battery * 5) || 0));
     $('battery').textContent = '▮'.repeat(bars) + '▯'.repeat(5 - bars);
     $('battery').classList.toggle('low', s.player.battery < 0.2);
     ($('stamina') as HTMLElement).style.width = `${Math.round(s.player.stamina * 100)}%`;
@@ -165,7 +233,7 @@ export class Hud {
     wrist.classList.toggle('on', lookingDown);
     if (lookingDown && s.myBody >= 0) {
       const owner = n.souls[s.myBody]?.name ?? '??????';
-      $('wrist-id').textContent = s.myBody === s.soul ? `ID · ${owner} (YOU)` : `ID · ${owner}`;
+      $('wrist-id').textContent = (s.myBody === s.soul ? `ID · ${owner} (YOU)` : `ID · ${owner}`) + ` · ${s.player.physique.tag}`;
       $('wrist-id').classList.toggle('notyou', s.myBody !== s.soul);
       // your original body's vitals
       if (s.soul >= 0) {

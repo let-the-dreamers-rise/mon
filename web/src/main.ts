@@ -182,7 +182,7 @@ $('btn-explore').onclick = async () => {
   game.roam();
   $('view').onclick = () => game.player.lock();
   game.player.lock();
-  toast('Halden, alone. WASD to walk · mouse to look · F torch · M map · Esc to stop', 6000);
+  toast('Halden, alone. Or so you think. WASD walk · mouse look · SHIFT run · F torch · M map · Esc to stop', 7000);
 };
 
 async function renderNights() {

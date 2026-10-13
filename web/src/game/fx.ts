@@ -114,6 +114,9 @@ export class Fx {
     this.tearBurst = 1;
   }
 
+  /** 1 = eyes shut; opens by itself */
+  eyelids = 0;
+
   update(now: number, dt: number) {
     this.staticBurst = Math.max(0, this.staticBurst - dt * 0.9);
     this.tearBurst = Math.max(0, this.tearBurst - dt * 0.7);
@@ -124,7 +127,10 @@ export class Fx {
     b.u('tear').value = Math.min(1, this.tearBurst + insanity * insanity * 0.6 * (Math.random() < 0.1 ? 1 : 0.2));
     b.u('hollowTint').value = this.hollow * 0.55;
     b.u('desat').value = 0.22 + insanity * 0.4;
-    b.u('exposure').value = 1 + Math.sin(now / 900) * 0.02;
+    // eyelids: black after a swap, then a few heavy blinks open
+    this.eyelids = Math.max(0, this.eyelids - dt * 0.7);
+    const lid = this.eyelids > 0 ? Math.min(1, this.eyelids * 1.5) * (0.8 + 0.2 * Math.abs(Math.sin(now / 140))) : 0;
+    b.u('exposure').value = (1 + Math.sin(now / 900) * 0.02) * (1 - lid);
     const off = 0.0012 + insanity * 0.006 + this.staticBurst * 0.01;
     this.chroma.offset.set(off, off * 0.6);
     this.vignette.darkness = 0.7 + insanity * 0.25;

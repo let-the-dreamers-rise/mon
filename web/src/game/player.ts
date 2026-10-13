@@ -2,9 +2,29 @@ import * as THREE from 'three';
 import { flashlightCookie } from './textures';
 import { BODY_RADIUS as RADIUS, HEIGHT, isSolidAt, slideOffProps } from './world';
 
-const EYE = 1.62;
 const WALK = 2.3;
 const SPRINT = 4.3;
+
+/** How a body carries you. A swap changes all of it: your height, your pace, your nerve. */
+export interface Physique {
+  eye: number;
+  pace: number;
+  limp: number;
+  tremor: number;
+  lungs: number;
+  tag: string;
+  feel: string;
+}
+export const PHYSIQUES: Physique[] = [
+  { eye: 1.62, pace: 1.0, limp: 0, tremor: 0, lungs: 1, tag: '1.71 m · STEADY', feel: 'Average height. Steady hands. Somebody kept this body in shape.' },
+  { eye: 1.74, pace: 1.04, limp: 0, tremor: 0.7, lungs: 1, tag: '1.83 m · SHAKING HANDS', feel: 'Taller. The ground is further away. Your hands will not stop shaking.' },
+  { eye: 1.49, pace: 0.9, limp: 0.85, tremor: 0, lungs: 1, tag: '1.58 m · BAD KNEE', feel: 'Shorter. The left knee does not bend the way yours did.' },
+  { eye: 1.66, pace: 0.98, limp: 0, tremor: 0.15, lungs: 0.55, tag: '1.75 m · WEAK LUNGS', feel: 'Your chest is tight. This body cannot run for long.' },
+  { eye: 1.8, pace: 1.1, limp: 0, tremor: 0, lungs: 1.3, tag: '1.89 m · RUNNER', feel: 'Tall. Long legs. This body was made to run.' },
+  { eye: 1.55, pace: 0.95, limp: 0, tremor: 0.45, lungs: 0.85, tag: '1.64 m · NUMB FINGERS', feel: 'Small and cold. You can barely feel the torch in your hand.' },
+  { eye: 1.68, pace: 0.88, limp: 0.45, tremor: 0.25, lungs: 0.8, tag: '1.77 m · BAD HIP', feel: 'Heavy. Your back aches and your hip clicks with every step.' },
+  { eye: 1.59, pace: 1.04, limp: 0, tremor: 0, lungs: 1.2, tag: '1.68 m · YOUNG', feel: 'Light on your feet. Young. Whoever this was, they were young.' },
+];
 
 /** First-person bodycam controller: pointer-lock look, WASD, sprint stamina, flashlight. */
 export class Player {
@@ -30,6 +50,9 @@ export class Player {
   private sleeveMat: THREE.MeshStandardMaterial;
   private bandMat: THREE.MeshStandardMaterial;
   shake = 0;
+  physique: Physique = PHYSIQUES[0];
+  private wakeT = 9;
+  private t = 0;
 
   constructor(scene: THREE.Scene, private dom: HTMLElement) {
     this.camera = new THREE.PerspectiveCamera(82, innerWidth / innerHeight, 0.05, 80);
@@ -80,6 +103,12 @@ export class Player {
   }
 
   /** dress the hands in the body you currently wear */
+  /** wake up in a body: on your knees, unsteady, then up */
+  wake(ph: Physique) {
+    this.physique = ph;
+    this.wakeT = 0;
+  }
+
   wear(color: THREE.ColorRepresentation, skinTone?: THREE.ColorRepresentation) {
     this.sleeveMat.color.set(color);
     void skinTone; // gloves hide the skin; the sleeve and the wristband tell you whose body this is
@@ -145,8 +174,9 @@ export class Player {
     const wantsSprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     this.moving = this.enabled && (f !== 0 || s !== 0);
     this.sprinting = this.moving && wantsSprint && this.stamina > 0.05;
-    this.stamina = THREE.MathUtils.clamp(this.stamina + (this.sprinting ? -dt / 5.5 : dt / 9), 0, 1);
-    const speed = (this.sprinting ? SPRINT : WALK) * (opts.speedScale ?? 1);
+    this.stamina = THREE.MathUtils.clamp(this.stamina + (this.sprinting ? -dt / (5.5 * this.physique.lungs) : dt / 9), 0, 1);
+    const risen = Math.min(1, this.wakeT / 1.8);
+    const speed = (this.sprinting ? SPRINT : WALK) * (opts.speedScale ?? 1) * this.physique.pace * (0.25 + 0.75 * risen);
 
     const dir = new THREE.Vector3(s, 0, -f);
     if (dir.lengthSq() > 0) dir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
@@ -188,13 +218,25 @@ export class Player {
       this.stepAcc = 0;
       this.onStep?.(this.sprinting);
     }
-    const bobY = Math.sin(this.bob) * 0.035 * Math.min(v / WALK, 1.6);
-    const bobX = Math.cos(this.bob * 0.5) * 0.02 * Math.min(v / WALK, 1.6);
+    const ph = this.physique;
+    this.t += dt;
+    this.wakeT += dt;
+    const gait = Math.min(v / WALK, 1.6);
+    // a bad leg drops you on every other step
+    const limp = ph.limp * Math.max(0, Math.sin(this.bob * 0.5)) * 0.07 * gait;
+    const bobY = Math.sin(this.bob) * 0.035 * gait - limp;
+    const bobX = Math.cos(this.bob * 0.5) * 0.02 * gait;
     this.shake = Math.max(0, this.shake - dt * 2);
     const sh = this.shake * 0.05;
-    this.yawObj.position.set(this.position.x + bobX + (Math.random() - 0.5) * sh, EYE + bobY + (Math.random() - 0.5) * sh, this.position.z);
+    // waking up: from your knees, tilted, to standing
+    const k = Math.min(1, this.wakeT / 1.8);
+    const down = (1 - k * k * (3 - 2 * k)) * 0.85;
+    this.yawObj.position.set(this.position.x + bobX + (Math.random() - 0.5) * sh, ph.eye - down + bobY + (Math.random() - 0.5) * sh, this.position.z);
     this.yawObj.position.y = Math.min(this.yawObj.position.y, HEIGHT - 0.15);
-    this.camera.rotation.z = bobX * 0.5;
+    const tremor = ph.tremor * (Math.sin(this.t * 23) * 0.6 + Math.sin(this.t * 37.3) * 0.4) * 0.006;
+    this.camera.rotation.z = bobX * 0.5 + limp * 0.6 + down * 0.4;
+    this.camera.rotation.x = tremor;
+    this.camera.rotation.y = tremor * 0.7;
 
     // flashlight battery
     if (this.flashlightOn) this.battery = Math.max(0, this.battery - dt / 240);

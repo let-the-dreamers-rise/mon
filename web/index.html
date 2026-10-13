@@ -35,6 +35,8 @@
       </div>
       <div id="objective"></div>
       <div id="place"></div>
+      <div id="guide" class="hidden"><span class="tag">TRACKER</span><span id="guide-arrow">▲</span><span id="guide-text"></span></div>
+      <div id="brief" class="hidden"><div id="brief-who"></div><ol id="brief-steps"></ol><div class="brief-keys">WASD move · mouse look · SHIFT run · F torch · M map · H help</div></div>
       <div id="prompt" class="hidden"></div>
       <div id="items"></div>
       <div id="feed"></div>
@@ -67,20 +69,22 @@
       <div class="title-wrap">
         <h1 class="logo" data-text="HOLLOW">HOLLOW</h1>
         <p class="tagline">something is wearing you.</p>
-        <p class="pitch">
-          Up to eight souls wake up in the Archive. Every 30–75 seconds the Monad chain reshuffles who is wearing whom.
-          One of you is Hollow. It turns whoever it touches — and they become Hollow too. Find three fuses. Get out.
-          <b>Every step you take is a transaction. Every death is permanent.</b>
-        </p>
+        <p class="pitch">Up to eight strangers wake up in Halden at night. One of them is <b>Hollow</b>.</p>
+        <ol class="howto">
+          <li><b>Find three fuse boxes.</b> The tracker at the top of your camera shows the way.</li>
+          <li><b>Every 30–75 seconds you wake up in someone else's body.</b> Look down at your wrist to see whose.</li>
+          <li><b>If the Hollow touches you, you turn.</b> It looks like anyone. Power the bridge gate and get out.</li>
+        </ol>
+        <p class="pitch small">Every step you take is a Monad transaction. Every death is permanent.</p>
         <div class="row">
           <input id="name" maxlength="16" placeholder="your name" autocomplete="off" />
         </div>
         <div class="row">
-          <button id="btn-play" class="primary">ENTER THE ARCHIVE</button>
+          <button id="btn-play" class="primary">PLAY A NIGHT</button>
           <button id="btn-watch">WATCH &amp; TORMENT</button>
           <button id="btn-footage">RECOVERED FOOTAGE</button>
         </div>
-        <div class="row"><button id="btn-explore" class="mini">or just walk around Halden first (no wallet, nobody else)</button></div>
+        <div class="row"><button id="btn-explore" class="mini">or walk around Halden first: no wallet, nobody else, learn the way to the fuses</button></div>
         <div id="wallet" class="card">
           <div class="label">SESSION WALLET (signs every step, no popups)</div>
           <div class="addr"><code id="addr">—</code> <button id="copy" class="mini">copy</button></div>
@@ -95,6 +99,7 @@
     <section id="lobby" class="screen hidden">
       <div class="lobby-wrap">
         <h2 id="lobby-title">NIGHTS</h2>
+        <p class="hint lobby-how">Open a night and press <b>START NOW</b> to play it right away, or wait for others to <b>JOIN</b> (up to 8). Each night lasts about ten minutes.</p>
         <div id="nights"></div>
         <div class="row">
           <button id="btn-create" class="primary">OPEN A NEW NIGHT</button>
