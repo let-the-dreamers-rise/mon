@@ -377,7 +377,8 @@ for (;;) {
 
     // speed: living walk 2.4 m/s, hollow 3.3 m/s, cap well under MAX_STEP
     const perSample = (hollow ? 280 : 250) * (msPerBlock * SAMPLE / 1000);
-    while (start() + bot.next * SAMPLE <= e) {
+    // like the browser client: never record past a shift that hasn't been applied yet
+    while (start() + bot.next * SAMPLE <= e && start() + bot.next * SAMPLE < Number(h.nextShift)) {
       let budget = Math.min(perSample, 400);
       while (budget > 0 && bot.route.length) {
         const wp = bot.route[0];

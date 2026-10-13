@@ -607,6 +607,8 @@ export class Pilot {
   sentSamples = 0;
   skippedSamples = 0;
   lastConfirmLatencyMs = 0;
+  /** smoothed send-to-onchain latency in blocks: slow machines and links send earlier */
+  private latBlocks = 3;
   private sendTimes = new Map<number, number>();
   /** the last sample queued for my body (index -1 = its spawn) */
   private tail: { index: number; pos: number } | null = null;
@@ -614,6 +616,8 @@ export class Pilot {
   /** where the chain says I am, when I got ahead of it */
   pull: Vec | null = null;
   onDesync?: () => void;
+  /** previous frame, to place each sample where the player was at its block (smooth at low fps) */
+  private prev: { est: number; pos: Vec } | null = null;
 
   constructor(private night: NightState, private wallet: Burner, readonly soul: number) {}
 
@@ -663,11 +667,17 @@ export class Pilot {
       this.onDesync?.();
     }
 
-    while (n.blockOfIndex(this.nextIndex) <= est) {
+    const prev = this.prev && this.prev.est < est && !changed ? this.prev : { est, pos };
+    this.prev = { est, pos: { ...pos } };
+    // never record past a shift whose new assignment isn't known yet (it needs the hash of the block
+    // before it): those samples may belong to someone else's body by then
+    const fence = n.nextShiftBlock();
+    while (n.blockOfIndex(this.nextIndex) <= est && !(fence > 0 && n.blockOfIndex(this.nextIndex) >= fence)) {
       const idx = this.nextIndex++;
       if (!this.tail) this.tail = this.chainTail(this.body);
       const t = this.tail;
-      let p = pack(pos);
+      const f = Math.min(1, Math.max(0, (n.blockOfIndex(idx) - prev.est) / (est - prev.est || 1)));
+      let p = pack({ x: prev.pos.x + (pos.x - prev.pos.x) * f, y: prev.pos.y + (pos.y - prev.pos.y) * f });
       // the contract's reach from the last sample, with a margin for rounding and timing
       const steps = Math.min(idx - t.index, MAX_GAP_STEPS);
       const reach = ((t.index < 0 ? SPAWN_RADIUS_CM : 0) + MAX_STEP_CM * steps) * 0.9;
@@ -691,6 +701,8 @@ export class Pilot {
       this.tail = { index: idx, pos: p };
     }
     if (voice && this.pending.length) this.pending[this.pending.length - 1].voice = voice;
+    // the game moves the player after a swap or a pull: don't interpolate across that jump
+    if (changed || this.pull) this.prev = null;
     this.flush(false, voice !== 0);
     // confirmation latency: when the chain shows a sample we sent
     const b = n.bodies[this.body];
@@ -698,6 +710,8 @@ export class Pilot {
       for (const [idx, t] of this.sendTimes) {
         if (idx < b.nSamples) {
           this.lastConfirmLatencyMs = now - t;
+          const blocks = this.lastConfirmLatencyMs / Math.max(100, n.msPerBlock);
+          this.latBlocks = Math.min(12, Math.max(2, this.latBlocks * 0.7 + blocks * 0.3));
           this.sendTimes.delete(idx);
         }
       }
@@ -705,20 +719,30 @@ export class Pilot {
     return changed;
   }
 
+  /** sends what is due even when frames are slow (called from a timer as well as every frame) */
+  pump() {
+    this.flush(false);
+  }
+
   private flush(force: boolean, urgent = false) {
     const n = this.night;
     if (!this.pending.length) return;
     const now = performance.now();
+    // judge age by the time-estimated block, not the last poll: a slow frame or poll must not
+    // make us sit on samples until the contract rejects them
+    const cur = Math.max(n.chainBlock, Math.floor(n.estBlock(now)));
     const body = this.pending[0].body;
-    // samples the contract would reject as too late are dropped (a gap just means "stood still")
-    this.pending = this.pending.filter((p) => n.blockOfIndex(p.index) + LATE_BLOCKS > n.chainBlock + 3);
+    // samples that would land after the contract's window are dropped (a gap just means "stood still")
+    const lat = Math.ceil(this.latBlocks);
+    this.pending = this.pending.filter((p) => n.blockOfIndex(p.index) + LATE_BLOCKS > cur + lat + 1);
     // only samples whose block the chain has reached can be accepted
-    const ready = this.pending.filter((p) => n.blockOfIndex(p.index) <= n.chainBlock + 1);
+    const ready = this.pending.filter((p) => n.blockOfIndex(p.index) <= cur);
     if (!ready.length) return;
-    // fewer, fuller transactions: wait for 4 samples or until the oldest is 8 blocks old (the
-    // contract accepts 16), unless a voice line or a proof needs it on chain now
+    // fewer, fuller transactions: wait for 4 samples or until the oldest has to go (the contract
+    // accepts 16 blocks; keep room for this client's own latency), unless a voice line needs it now
     const oldest = n.blockOfIndex(ready[0].index);
-    if (!force && !urgent && ready.length < 4 && n.chainBlock - oldest < 8 && now - this.lastSend > 300) return;
+    const sendAge = Math.max(0, LATE_BLOCKS - 6 - lat);
+    if (!force && !urgent && ready.length < 4 && cur - oldest < sendAge) return;
     if (!force && !urgent && now - this.lastSend < 300) return;
     const nS = n.bodies[body]?.nSamples ?? 0;
     const batch = ready.filter((p) => p.body === body && p.index >= nS).slice(0, 8);
@@ -747,7 +771,7 @@ export class Pilot {
     this.sendTimes.set(lastIdx, now);
     this.sentTo = Math.max(this.sentTo, lastIdx);
     // the tx lands 1-3 blocks after this; if a shift is due by then this call applies it
-    const shiftDue = !!n.header && n.header.nextShift > 0 && n.chainBlock + 4 >= n.header.nextShift;
+    const shiftDue = !!n.header && n.header.nextShift > 0 && cur + 4 >= n.header.nextShift;
     const gas = recordGas(consecutive.length, first, nS, shiftDue, voice !== 0, n.header?.nSouls ?? 8);
     void this.wallet.call('record', [n.id, this.soul, body, first, packed, consecutive.length, voice], { gas });
   }

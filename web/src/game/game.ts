@@ -19,6 +19,8 @@ const QUALITY = new URLSearchParams(location.search).get('quality') ?? 'auto';
 const cmToM = (v: number) => v / 100;
 
 /** One night in the Archive, from the inside (play) or through the bodycams (watch). */
+const NO_RENDER = new URLSearchParams(location.search).has('norender');
+
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -134,6 +136,10 @@ export class Game {
     this.mode = mode;
     this.mySoul = soul;
     this.pilot = mode === 'play' && soul >= 0 ? new Pilot(night, this.wallet, soul) : null;
+    if (this.pilot) {
+      const pilot = this.pilot;
+      const timer = setInterval(() => (this.pilot === pilot ? pilot.pump() : clearInterval(timer)), 250);
+    }
     night.onTorment = (t) => this.onTorment(t);
     night.onUsed = (u) => this.town.onUsed(u);
     await this.audio.start();
@@ -168,7 +174,8 @@ export class Game {
     } else this.idleCamera(now);
     this.world.update(now, dt, this.mode === 'watch' ? this.watchCam.position : this.player.yawObj.position, 1 - this.psych.sanity);
     this.fx.update(now, dt);
-    this.fx.render(dt);
+    // ?norender=1: run the whole game and chain loop without drawing (headless soak tests)
+    if (!NO_RENDER) this.fx.render(dt);
     this.town.capture(this.canvas);
   }
 
