@@ -53,6 +53,7 @@ export class Hud {
     this.root.dataset.mode = mode;
     $('watchpanel').classList.toggle('hidden', mode !== 'watch');
     $('controls').classList.toggle('hidden', mode !== 'play');
+    $('items').classList.toggle('hidden', mode !== 'play');
   }
 
   hide() {
@@ -123,7 +124,7 @@ export class Hud {
     if (!h) return;
 
     // camera label: scrambled after a swap — you have to look at your hands to know
-    const camBody = s.mode === 'watch' ? s.watchBody : s.myBody;
+    const camBody = s.mode === 'play' ? s.myBody : s.watchBody;
     const scrambling = s.now < this.scrambleUntil;
     $('cam').textContent = scrambling ? `CAM ${glyphs(2)}` : camBody >= 0 ? `CAM ${String(camBody + 1).padStart(2, '0')}` : 'CAM --';
     $('cam').classList.toggle('glitch', scrambling);
@@ -138,6 +139,7 @@ export class Hud {
     let objective = h.exitOpenBlock ? 'THE EXIT HAS POWER — GET OUT' : `FIND THE FUSES  ${fuses}/3`;
     if (s.hollow) objective = 'TOUCH THE LIVING. THEY CANNOT TELL.';
     if (s.mode === 'watch') objective = `WATCHING CAM ${String(s.watchBody + 1).padStart(2, '0')} · ${h.living} LIVING`;
+    if (s.mode === 'replay') objective = `RECOVERED FOOTAGE · NIGHT ${n.id}`;
     $('objective').textContent = objective;
     $('objective').classList.toggle('hollow', s.hollow);
 

@@ -153,7 +153,31 @@ export class Player {
     const [x, z] = this.collide(this.position.x + this.velocity.x * dt, this.position.z + this.velocity.z * dt);
     this.position.x = x;
     this.position.z = z;
+    this.animate(dt);
+  }
 
+  /**
+   * Replays: walk this camera along a recorded path. Position and velocity come from the chain,
+   * the head turns toward where the body is going, and the bob, steps and torch behave as if a
+   * person were holding them.
+   */
+  puppet(dt: number, x: number, z: number, vx: number, vz: number) {
+    this.position.set(x, 0, z);
+    this.velocity.set(vx, 0, vz);
+    const v = Math.hypot(vx, vz);
+    this.moving = v > 0.3;
+    this.sprinting = v > 3.2;
+    if (v > 0.4) {
+      const want = Math.atan2(-vx, -vz);
+      let d = want - this.yawObj.rotation.y;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.yawObj.rotation.y += d * Math.min(1, dt * 2.6);
+    }
+    this.pitchObj.rotation.x += (-0.08 - this.pitchObj.rotation.x) * Math.min(1, dt * 2);
+    this.animate(dt);
+  }
+
+  private animate(dt: number) {
     // head bob + footsteps
     const v = Math.hypot(this.velocity.x, this.velocity.z);
     this.bob += dt * v * 2.6;

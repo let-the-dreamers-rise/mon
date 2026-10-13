@@ -134,7 +134,7 @@ function parseEpoch(index: number, word: bigint): Epoch {
   };
 }
 
-const tormentEvent = parseAbiItem(
+export const tormentEvent = parseAbiItem(
   'event Torment(uint256 indexed night, address indexed watcher, uint8 kind, uint8 body, uint64 atBlock, uint256 paid)',
 );
 const usedEvent = parseAbiItem('event Used(uint256 indexed night, uint8 body, uint8 soul, uint8 item, uint32 pos, uint64 atBlock)');
@@ -150,10 +150,12 @@ export class NightState {
   souls: SoulInfo[] = [];
   bodies: BodyInfo[] = [];
   epochs: Epoch[] = [];
-  private predicted: Epoch[] = [];
-  private samples: Map<number, number>[] = [];
+  protected predicted: Epoch[] = [];
+  /** a locally predicted swap was confirmed (or contradicted) by the chain */
+  onShiftVerified?: (epoch: number, ok: boolean, atBlock: number) => void;
+  protected samples: Map<number, number>[] = [];
   chainBlock = 0;
-  private chainBlockAt = 0;
+  protected chainBlockAt = 0;
   msPerBlock = NET.blockMs;
   private lastBlockSeen = 0;
   private lastBlockSeenAt = 0;
@@ -247,6 +249,13 @@ export class NightState {
         })) as readonly bigint[];
         words.forEach((w, k) => this.epochs.push(parseEpoch(this.epochs.length + k * 0, w)));
         this.epochs.forEach((e, k) => (e.index = k));
+        // every swap this browser computed from a block hash is checked against what the chain stored
+        for (const p of this.predicted) {
+          const c = this.epochs[p.index];
+          if (!c || p.index > this.header.epoch) continue;
+          const ok = c.start === p.start && c.assign.slice(0, this.header.nSouls).join() === p.assign.slice(0, this.header.nSouls).join();
+          this.onShiftVerified?.(p.index, ok, p.start);
+        }
         this.predicted = this.predicted.filter((p) => p.index > this.header!.epoch);
       }
       const last = this.epochs[this.epochs.length - 1];

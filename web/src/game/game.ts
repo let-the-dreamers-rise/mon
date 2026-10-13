@@ -12,15 +12,16 @@ import { World, openYaw, CELL } from './world';
 import { Town } from './town';
 import { loadEnvironment } from './assets';
 
-export type Mode = 'play' | 'watch';
+export type Mode = 'play' | 'watch' | 'replay';
 
 const QUALITY = new URLSearchParams(location.search).get('quality') ?? 'auto';
 
 const cmToM = (v: number) => v / 100;
 
-/** One night in the Archive, from the inside (play) or through the bodycams (watch). */
+/** ?norender=1: run the whole game and chain loop without drawing (headless soak tests) */
 const NO_RENDER = new URLSearchParams(location.search).has('norender');
 
+/** One night in the Archive, from the inside (play) or through the bodycams (watch). */
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -61,6 +62,13 @@ export class Game {
   private pixelRatio = 1;
   private frameTimes: number[] = [];
   private torchSpots: THREE.SpotLight[] = [];
+  /** replay director: when the camera may cut next, and the soul last seen in the watched body */
+  private cutAt = 0;
+  private camSoul = -1;
+  private pinnedCam = (() => {
+    const c = new URLSearchParams(location.search).get('cam');
+    return c ? Number(c) - 1 : -1;
+  })();
   onOver?: (summary: { escaped: boolean; hollow: boolean; txs: { hash: Hex; fn: string }[]; night: NightState }) => void;
 
   constructor(private canvas: HTMLCanvasElement, readonly wallet: Burner) {
@@ -135,6 +143,8 @@ export class Game {
     this.night = night;
     this.mode = mode;
     this.mySoul = soul;
+    night.onShiftVerified = (e, ok, at) =>
+      this.hud.feed(ok ? `SWAP #${e} VERIFIED · hash of block ${at - 1} → same bodies as the chain` : `SWAP #${e} MISMATCH · the chain's word is final`);
     this.pilot = mode === 'play' && soul >= 0 ? new Pilot(night, this.wallet, soul) : null;
     if (this.pilot) {
       const pilot = this.pilot;
@@ -145,7 +155,8 @@ export class Game {
     await this.audio.start();
     this.hud.show(mode);
     this.player.enabled = mode === 'play';
-    this.fx.setCamera(mode === 'play' ? this.player.camera : this.watchCam);
+    // replays are seen through the bodycams themselves: the player's camera, hands and torch
+    this.fx.setCamera(mode === 'watch' ? this.watchCam : this.player.camera);
     if (mode === 'watch') this.watchCam.add(this.audio.listener);
     const spawn = unpack(spawnOf(Math.max(soul, 0)));
     const sx = cmToM(spawn.x), sz = cmToM(spawn.y);
@@ -167,6 +178,7 @@ export class Game {
       void n.poll().then(() => this.afterPoll(now)).catch(() => undefined);
     }
     if (n && this.started) this.step(now, dt, n);
+    if (n && this.started && this.mode === 'replay') this.replayCam(now, dt, n);
     else if (this.roaming) {
       this.player.update(dt);
       this.town.update(now, dt);
@@ -174,7 +186,6 @@ export class Game {
     } else this.idleCamera(now);
     this.world.update(now, dt, this.mode === 'watch' ? this.watchCam.position : this.player.yawObj.position, 1 - this.psych.sanity);
     this.fx.update(now, dt);
-    // ?norender=1: run the whole game and chain loop without drawing (headless soak tests)
     if (!NO_RENDER) this.fx.render(dt);
     this.town.capture(this.canvas);
   }
@@ -272,7 +283,7 @@ export class Game {
     }
     for (let b = 0; b < this.figures.length; b++) {
       const f = this.figures[b];
-      const isMe = this.mode === 'play' && b === myBody && !this.escaped;
+      const isMe = (this.mode === 'play' && b === myBody && !this.escaped) || (this.mode === 'replay' && b === this.watchBody);
       const gone = n.bodyGone(b);
       f.root.visible = !isMe && !gone && phase !== 'lobby';
       if (!f.root.visible) continue;
@@ -434,7 +445,7 @@ export class Game {
 
   /** submit every proof we can see: touches, fuses, escapes */
   private prove(n: NightState, now: number) {
-    if (this.mode !== 'play' && this.mode !== 'watch') return;
+    if (this.mode !== 'play' && this.mode !== 'watch') return; // replays never write to the chain
     for (const p of n.findTurns()) {
       const key = `t${p.victimSoul}`;
       const involved = p.victimSoul === this.mySoul || p.hollowSoul === this.mySoul;
@@ -559,6 +570,67 @@ export class Game {
         void this.audio.play('static_burst.mp3', 0.4);
         return;
       }
+    }
+  }
+
+  // ------------------------------------------------------------------ replay
+  /**
+   * The director: watch through the bodycam of whoever is closest to a Hollow (or of the Hollow
+   * closing in), cut when someone else gets closer, and never hold a shot too long.
+   */
+  private replayCam(now: number, dt: number, n: NightState) {
+    const h = n.header;
+    if (!h) return;
+    const est = n.estBlock(now);
+    const idx = n.indexAtBlock(est) - 1.2;
+    const count = h.nSouls;
+    const pos = (b: number) => n.renderPosition(b, idx);
+    if (this.pinnedCam >= 0 && this.pinnedCam < count) this.watchBody = this.pinnedCam;
+    else if (now > this.cutAt || n.bodyGone(this.watchBody)) {
+      let best = -1;
+      let bestD = Infinity;
+      let hunter = -1;
+      for (let a = 0; a < count; a++) {
+        if (n.bodyGone(a) || !n.isHollowAt(n.soulInBody(a, est), est)) continue;
+        for (let b = 0; b < count; b++) {
+          if (b === a || n.bodyGone(b) || !n.isLivingAt(n.soulInBody(b, est), est)) continue;
+          const pa = pos(a), pb = pos(b);
+          const d = Math.hypot(pa.x - pb.x, pa.y - pb.y);
+          if (d < bestD) [bestD, best, hunter] = [d, b, a];
+        }
+      }
+      let next = best;
+      if (best < 0 || bestD > 4000) {
+        // nobody close: wander between the living
+        const alive = [...Array(count).keys()].filter((b) => !n.bodyGone(b));
+        next = alive[Math.floor(Math.random() * alive.length)] ?? 0;
+      } else if (hunter >= 0 && Math.random() < 0.3) next = hunter; // sometimes, the thing hunting
+      if (next !== this.watchBody) {
+        this.watchBody = next;
+        this.fx.swap();
+        this.fx.staticBurst = Math.max(this.fx.staticBurst, 0.5);
+        void this.audio.play('static_burst.mp3', 0.35);
+        this.camSoul = -1;
+      }
+      this.cutAt = now + (bestD < 1500 ? 7000 : 10000) + Math.random() * 4000;
+    }
+    const rp = n.renderPosition(this.watchBody, idx);
+    const perSec = 1000 / (n.msPerBlock * SAMPLE_BLOCKS);
+    this.player.puppet(dt, cmToM(rp.x), cmToM(rp.y), cmToM(rp.vx) * perSec, cmToM(rp.vy) * perSec);
+    const soul = n.soulInBody(this.watchBody, est);
+    if (soul !== this.camSoul) {
+      if (this.camSoul !== -1) {
+        // the body this camera is strapped to was just taken over by someone else
+        this.fx.swap();
+        this.player.shake = 1.2;
+        void this.audio.play('glitch_shift.mp3', 0.7);
+        this.hud.scrambleCam(1600);
+      }
+      this.camSoul = soul;
+      const owner = n.souls[this.watchBody]?.name ?? `worker ${this.watchBody + 1}`;
+      const inside = n.souls[soul]?.name ?? '??';
+      this.hud.feed(soul === this.watchBody ? `CAM ${String(this.watchBody + 1).padStart(2, '0')} · ${owner}` : `CAM ${String(this.watchBody + 1).padStart(2, '0')} · ${owner}'s body · worn by ${inside}`);
+      this.player.wear(SUITS[this.watchBody % 8], SKINS[this.watchBody % 8]);
     }
   }
 

@@ -1,7 +1,8 @@
 import { formatEther, parseEther } from 'viem';
-import { IS_LOCAL, NET, TORMENTS, type Hex } from './config';
+import { IS_LOCAL, NET, NIGHT_BLOCKS, TORMENTS, type Hex } from './config';
 import { hollowAbi } from './chain/abi';
 import { NightState, encodeName, short } from './chain/night';
+import { ReplayNight } from './chain/replay';
 import { Burner, connectInjected, explainError, fundFromInjected, injectedAddress, publicClient } from './chain/wallet';
 import { Game } from './game/game';
 import { Psych } from './game/psych';
@@ -133,8 +134,8 @@ async function renderNights() {
       const { host, lobbyEnd, nSouls, living, startBlock, endBlock } = n;
       let status = 'open lobby';
       if (Number(startBlock)) {
-        const over = Number(endBlock) || block >= startBlock + 1600n;
-        status = over ? 'over' : block < startBlock ? 'starting…' : `in progress · ${living} living`;
+        const over = Number(endBlock) || block >= startBlock + BigInt(NIGHT_BLOCKS);
+        status = over ? 'over · replay' : block < startBlock ? 'starting…' : `in progress · ${living} living`;
       } else if (block >= lobbyEnd) status = 'lobby expired (anyone can start)';
       return { id, host, nSouls: Number(nSouls), status };
     }),
@@ -168,6 +169,8 @@ async function renderDetail(id: bigint) {
   $('btn-start').classList.toggle('hidden', mode === 'watch' || phase !== 'lobby' || (!isHost && ns.chainBlock < h.lobbyEnd) || h.nSouls === 0);
   const canEnter = mode === 'watch' ? phase === 'night' || phase === 'countdown' : me >= 0 && phase !== 'lobby' && phase !== 'over';
   $('btn-enter').classList.toggle('hidden', !canEnter);
+  $('btn-replay').classList.toggle('hidden', phase !== 'over' || !h.startBlock);
+  $('btn-replay').onclick = () => void enterReplay(id);
   $('nd-hint').textContent =
     mode === 'watch'
       ? phase === 'night'
@@ -180,7 +183,7 @@ async function renderDetail(id: bigint) {
             : 'Waiting for the host to start.'
           : 'Join, then wait for the lights to go out.'
         : phase === 'over'
-          ? 'This night is over.'
+          ? 'This night is over. Every step of it is still on chain: watch the footage rebuilt from Monad blocks.'
           : me >= 0
             ? 'Your night has begun. Enter.'
             : 'Too late to join this night.';
@@ -218,6 +221,28 @@ $('btn-create').onclick = async () => {
     toast(String((e as Error).message).slice(0, 140));
   }
 };
+
+/** Rebuild a finished night from the chain and play it back through its bodycams. */
+async function enterReplay(id: bigint) {
+  if (entered) return;
+  entered = true;
+  clearInterval(lobbyTimer);
+  show('none');
+  toast(`recovering night ${id} from ${NET.name}…`, 6000);
+  try {
+    await game.audio.start();
+    const rn = await ReplayNight.load(id, (msg) => toast(`night ${id}: ${msg}…`, 4000));
+    const speed = Number(new URLSearchParams(location.search).get('speed') ?? 1);
+    if (speed > 0) rn.speed = speed;
+    await game.enter(rn, 'replay', -1);
+    rn.play();
+    (window as unknown as { __replayReady?: boolean }).__replayReady = true;
+  } catch (e) {
+    toast(String((e as Error).message ?? e).slice(0, 160), 8000);
+    entered = false;
+    show('title');
+  }
+}
 
 async function enter(id: bigint) {
   if (entered) return;
@@ -279,7 +304,8 @@ function buildWatchPanel(ns: NightState) {
 game.onOver = ({ escaped, hollow, txs, night }) => {
   show('end');
   game.hud.hide();
-  $('end-title').textContent = escaped ? 'YOU GOT OUT' : hollow ? 'YOU ARE HOLLOW' : mode === 'watch' ? 'DAWN' : 'DAWN NEVER CAME';
+  $('end-title').textContent =
+    game.mode === 'replay' ? 'END OF RECOVERED FOOTAGE' : escaped ? 'YOU GOT OUT' : hollow ? 'YOU ARE HOLLOW' : mode === 'watch' ? 'DAWN' : 'DAWN NEVER CAME';
   $('end-sub').textContent = escaped
     ? 'Someone else is still wearing your body in there.'
     : hollow
@@ -324,6 +350,9 @@ $('btn-again').onclick = () => location.reload();
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
+
+const replayParam = new URLSearchParams(location.search).get('replay');
+if (replayParam && /^\d+$/.test(replayParam)) void enterReplay(BigInt(replayParam));
 
 if (new URLSearchParams(location.search).has('roam')) {
   show('none');
