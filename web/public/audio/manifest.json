@@ -1,0 +1,56 @@
+{
+  "voices": {
+    "lure": {
+      "help": "voice_lure_help.mp3",
+      "here": "voice_lure_here.mp3",
+      "itsme": "voice_lure_itsme.mp3",
+      "donttrust": "voice_lure_donttrust.mp3",
+      "fuse": "voice_lure_fuse.mp3",
+      "run": "voice_lure_run.mp3"
+    },
+    "whispers": [
+      "voice_whisper_01.mp3",
+      "voice_whisper_02.mp3",
+      "voice_whisper_03.mp3",
+      "voice_whisper_04.mp3",
+      "voice_whisper_05.mp3",
+      "voice_whisper_06.mp3",
+      "voice_whisper_07.mp3",
+      "voice_whisper_08.mp3",
+      "voice_whisper_09.mp3",
+      "voice_whisper_10.mp3",
+      "voice_whisper_11.mp3",
+      "voice_whisper_12.mp3"
+    ],
+    "shift": [
+      "voice_shift_01.mp3",
+      "voice_shift_02.mp3",
+      "voice_shift_03.mp3"
+    ],
+    "turned": "voice_turned.mp3",
+    "intro": "voice_intro.mp3"
+  },
+  "sfx": [
+    "amb_buzz_loop.mp3",
+    "amb_drone_loop.mp3",
+    "breath_scared_loop.mp3",
+    "door_open.mp3",
+    "exit_power.mp3",
+    "flashlight_click.mp3",
+    "flashlight_flicker.mp3",
+    "fuse_pickup.mp3",
+    "glitch_shift.mp3",
+    "heartbeat_fast_loop.mp3",
+    "heartbeat_slow_loop.mp3",
+    "jumpscare_sting.mp3",
+    "scream_turned.mp3",
+    "static_burst.mp3",
+    "step_carpet_1.mp3",
+    "step_carpet_2.mp3",
+    "step_carpet_3.mp3",
+    "step_carpet_4.mp3",
+    "ui_click.mp3",
+    "ui_hover.mp3",
+    "whisper_bed_loop.mp3"
+  ]
+}
