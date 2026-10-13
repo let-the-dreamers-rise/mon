@@ -17,9 +17,10 @@
   h1 { font-family: 'Special Elite', serif; font-weight: 400; letter-spacing: 0.06em; }
   .kicker { font-family: VT323, monospace; font-size: 28px; letter-spacing: 0.18em; color: var(--dim); }
   .logo { font-size: 150px; text-align: center; position: relative; text-shadow: 0 0 30px rgba(255,240,180,0.25); }
-  .logo span { position: absolute; left: 0; right: 0; top: 0; }
-  .logo .r { color: var(--rec); transform: translate(3px, 0); clip-path: inset(0 0 62% 0); opacity: 0.9; }
-  .logo .b { color: #6cf; transform: translate(-3px, 0); clip-path: inset(58% 0 0 0); opacity: 0.9; }
+  .logo span { position: absolute; left: 0; right: 0; top: 0; z-index: -1; }
+  .logo { z-index: 0; isolation: isolate; }
+  .logo .r { color: var(--rec); transform: translate(-4px, 1px); opacity: 0.45; }
+  .logo .b { color: #6cf; transform: translate(4px, -1px); opacity: 0.35; }
   .tag { font-family: 'Special Elite', serif; font-size: 34px; text-align: center; color: var(--paper); opacity: 0.85; }
   .sub { font-family: VT323, monospace; font-size: 30px; text-align: center; letter-spacing: 0.12em; color: var(--dim); margin-top: 10px; }
   .rows { margin-top: 18px; display: grid; gap: 4px; }

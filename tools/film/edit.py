@@ -81,7 +81,7 @@ def build_video(work, tmp):
         for (o, a, b) in ov:
             inputs += ["-loop", "1", "-framerate", str(FPS), "-i", os.path.join(work, "slides", f"slide-{o}.png")]
         if kind == "static":
-            chain = "[0:v]noise=alls=100:allf=t+u,eq=contrast=1.6:brightness=-0.05,format=yuv420p[v0]"
+            chain = "[0:v]noise=alls=100:allf=t+u,hue=s=0,eq=contrast=1.6:brightness=-0.05,format=yuv420p[v0]"
         elif kind == "slide":
             # a slow push-in so stills breathe
             chain = (f"[0:v]scale=1408:792,zoompan=z='min(1.0+on/({FPS}*{dur})*0.05,1.05)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
