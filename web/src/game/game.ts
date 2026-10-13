@@ -58,6 +58,7 @@ export class Game {
   private started = false;
   private introDone = false;
   private shiftWarned = 0;
+  private countingDown = false;
   private originalLost = false;
   private pixelRatio = 1;
   private frameTimes: number[] = [];
@@ -237,12 +238,15 @@ export class Game {
 
     if (phase === 'countdown') {
       const secs = Math.max(0, ((h.startBlock - est) * n.msPerBlock) / 1000);
+      this.countingDown = true;
       this.hud.center(`THE LIGHTS GO OUT IN ${secs.toFixed(1)}`, 'Check your hands when you wake up.');
       if (!this.introDone) {
         this.introDone = true;
         void this.audio.play('voice_intro.mp3', 0.9);
       }
-    } else if (phase === 'night') {
+    } else if (phase === 'night' && this.countingDown) {
+      // clear the countdown once; later messages (touched, hollow, got out) must stay up
+      this.countingDown = false;
       this.hud.center('');
     }
 
@@ -510,7 +514,7 @@ export class Game {
     setTimeout(() => fig.reach(), 30);
     void this.audio.play('jumpscare_sting.mp3', 1);
     void this.audio.play('scream_turned.mp3', 0.8);
-    this.fx.staticBurst = 1.4;
+    this.fx.staticBurst = 0.55;
     this.fx.tearBurst = 1;
     this.player.shake = 2.5;
     this.audio.duck(2.2);
@@ -588,7 +592,7 @@ export class Game {
     setTimeout(() => fig.reach(), 30);
     void this.audio.play('jumpscare_sting.mp3', 1);
     void this.audio.play('scream_turned.mp3', 0.8);
-    this.fx.staticBurst = 1.4;
+    this.fx.staticBurst = 0.55;
     this.fx.tearBurst = 1;
     this.player.shake = 2.5;
     this.audio.duck(2.2);
