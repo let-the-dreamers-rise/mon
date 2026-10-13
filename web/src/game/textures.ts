@@ -154,3 +154,41 @@ export function label(text: string, opts: { w?: number; h?: number; bg?: string;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+/** a lit window seen from the street at night: frame, mullions, half-drawn blinds, a curtain edge */
+export function litWindow() {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 80;
+  const g = c.getContext('2d')!;
+  const glow = g.createRadialGradient(36, 46, 4, 32, 40, 48);
+  glow.addColorStop(0, '#ffffff');
+  glow.addColorStop(0.6, '#b9b0a0');
+  glow.addColorStop(1, '#5a5148');
+  g.fillStyle = glow;
+  g.fillRect(0, 0, 64, 80);
+  // blinds: pulled down a third of the way
+  g.fillStyle = 'rgba(30,24,18,0.55)';
+  for (let y = 4; y < 30; y += 3) g.fillRect(4, y, 56, 1.6);
+  // a curtain hanging at the left
+  g.fillStyle = 'rgba(20,14,10,0.85)';
+  g.beginPath();
+  g.moveTo(4, 4);
+  g.bezierCurveTo(18, 30, 10, 55, 16, 76);
+  g.lineTo(4, 76);
+  g.fill();
+  // frame and mullions
+  g.strokeStyle = '#0b0a09';
+  g.lineWidth = 5;
+  g.strokeRect(2, 2, 60, 76);
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(32, 2);
+  g.lineTo(32, 78);
+  g.moveTo(2, 42);
+  g.lineTo(62, 42);
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CELL_CM, GRID } from '../config';
 import map from '../map.json';
 import { applyPbr, ModelInstances } from './assets';
-import { carpet, ceiling, label, roughness, wallpaper } from './textures';
+import { carpet, ceiling, label, litWindow, roughness, wallpaper } from './textures';
 
 export const CELL = CELL_CM / 100; // 3 m
 export const HEIGHT = 3; // interior ceiling height
@@ -358,7 +358,7 @@ export class World {
     const dark = new THREE.InstancedMesh(winGeo, new THREE.MeshStandardMaterial({ color: 0x07090c, roughness: 0.06, metalness: 0.95 }), winDark.length);
     winDark.forEach((m, i) => dark.setMatrixAt(i, m));
     this.group.add(dark);
-    this.windowsLit = new THREE.InstancedMesh(winGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), winLit.length);
+    this.windowsLit = new THREE.InstancedMesh(winGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, map: litWindow() }), winLit.length);
     this.windowsLit.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(winLit.length * 3), 3);
     winLit.forEach((m, i) => {
       this.windowsLit.setMatrixAt(i, m);
@@ -833,8 +833,8 @@ export class World {
     // lit windows flicker like TVs behind curtains
     for (let i = 0; i < this.litPhase.length; i++) {
       const t = now / 1000 + this.litPhase[i];
-      const v = 0.55 + 0.25 * Math.sin(t * 0.7) + (Math.sin(t * 9.1) > 0.97 ? -0.4 : 0);
-      col.setRGB(1.0 * v, 0.72 * v, 0.42 * v);
+      const v = 0.3 + 0.12 * Math.sin(t * 0.7) + (Math.sin(t * 9.1) > 0.97 ? -0.2 : 0);
+      col.setRGB(1.0 * v, 0.7 * v, 0.4 * v);
       this.windowsLit.setColorAt(i, col);
     }
     if (this.windowsLit.instanceColor) this.windowsLit.instanceColor.needsUpdate = true;

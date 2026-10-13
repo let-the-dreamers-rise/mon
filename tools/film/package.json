@@ -1,0 +1,9 @@
+{
+  "name": "hollow-film",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic capture of HOLLOW footage for the demo video",
+  "dependencies": {
+    "playwright": "^1.47.2"
+  }
+}

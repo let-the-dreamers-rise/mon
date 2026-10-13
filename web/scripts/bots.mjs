@@ -22,6 +22,7 @@ const RPC = args.rpc ?? process.env.RPC_URL ?? 'http://127.0.0.1:8545';
 const HOLLOW = args.hollow ?? process.env.HOLLOW ?? '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const COUNT = Number(args.count ?? 5);
 const BATCH = Number(args.batch ?? 4);
+const SPEED = Math.min(1.6, Number(args.speed ?? 1)); // --speed 1.4: demo nights run (still under MAX_STEP)
 const root = new URL('../../', import.meta.url);
 const abi = JSON.parse(readFileSync(new URL('contracts/out/Hollow.sol/Hollow.json', root))).abi;
 const map = JSON.parse(readFileSync(new URL('tools/map/hollow-map.json', root)));
@@ -376,7 +377,7 @@ for (;;) {
     }
 
     // speed: living walk 2.4 m/s, hollow 3.3 m/s, cap well under MAX_STEP
-    const perSample = (hollow ? 280 : 250) * (msPerBlock * SAMPLE / 1000);
+    const perSample = (hollow ? 280 : 250) * SPEED * (msPerBlock * SAMPLE / 1000);
     // like the browser client: never record past a shift that hasn't been applied yet
     while (start() + bot.next * SAMPLE <= e && start() + bot.next * SAMPLE < Number(h.nextShift)) {
       let budget = Math.min(perSample, 400);

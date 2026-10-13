@@ -15,6 +15,12 @@ const SHIFT_VOICES = ['voice_shift_01.mp3', 'voice_shift_02.mp3', 'voice_shift_0
 const STEPS = [1, 2, 3, 4].map((i) => `step_carpet_${i}.mp3`);
 
 /** Horror audio: layered loops, HRTF-positioned voices, a heartbeat driven by fear. */
+/** the film harness (tools/film) records every sound with its time, to mix the soundtrack offline */
+const FILM_LOG = (window as unknown as { __audioLog?: { t: number; file: string; volume: number; rate: number; dist: number }[] }).__audioLog;
+function filmLog(file: string, volume: number, rate: number, dist: number) {
+  FILM_LOG?.push({ t: performance.now(), file, volume, rate, dist });
+}
+
 export class Audio {
   readonly listener = new THREE.AudioListener();
   private ctx = this.listener.context;
@@ -114,6 +120,7 @@ export class Audio {
   }
 
   async play(file: string, volume = 1, rate = 1) {
+    filmLog(file, volume, rate, 0);
     const buf = await this.load(file);
     if (!buf) return;
     const src = this.ctx.createBufferSource();
@@ -127,6 +134,11 @@ export class Audio {
 
   /** a sound at a point in the world, HRTF-panned */
   async playAt(file: string, pos: THREE.Vector3, volume = 1, refDistance = 2.5, rate = 1) {
+    if (FILM_LOG) {
+      // what this sound would weigh at the listener (THREE's inverse distance model, rolloff 1.4)
+      const d = this.listener.getWorldPosition(new THREE.Vector3()).distanceTo(pos);
+      filmLog(file, volume * (refDistance / (refDistance + 1.4 * (Math.max(d, refDistance) - refDistance))), rate, d);
+    }
     const buf = await this.load(file);
     if (!buf) return;
     const holder = new THREE.Object3D();

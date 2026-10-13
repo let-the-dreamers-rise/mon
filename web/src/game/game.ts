@@ -180,7 +180,10 @@ export class Game {
     if (n && this.started) this.step(now, dt, n);
     if (n && this.started && this.mode === 'replay') this.replayCam(now, dt, n);
     else if (this.roaming) {
-      this.player.update(dt);
+      // the film harness can drive the camera along a scripted path
+      const tour = (window as unknown as { __tour?: (now: number, dt: number, p: Player) => void }).__tour;
+      if (tour) tour(now, dt, this.player);
+      else this.player.update(dt);
       this.town.update(now, dt);
       this.psych.update(now, dt, 99, false, true);
     } else this.idleCamera(now);
@@ -407,6 +410,7 @@ export class Game {
       if (s.hollowSince && s.hollowSince > n.header!.startBlock && !this.turnedSeen.has(i)) {
         this.turnedSeen.add(i);
         if (i === this.mySoul) this.onTurned(n, est);
+        else if (this.mode === 'replay' && n.soulInBody(this.watchBody, est) === i) this.replayTouched(n, i, s.hollowSince);
         else {
           void this.audio.play('scream_turned.mp3', 0.35, 0.85);
           this.hud.feed(`someone stopped screaming.`);
@@ -574,6 +578,25 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ replay
+  /** the soul wearing the body this camera is strapped to was touched: the footage shows it */
+  private replayTouched(n: NightState, soul: number, atBlock: number) {
+    const name = n.souls[soul]?.name ?? 'someone';
+    const fig = new Figure((this.watchBody + 3) % 8, '', true);
+    fig.setTorch(false);
+    this.scene.add(fig.root);
+    this.jumpscare = { fig, t: 0 };
+    setTimeout(() => fig.reach(), 30);
+    void this.audio.play('jumpscare_sting.mp3', 1);
+    void this.audio.play('scream_turned.mp3', 0.8);
+    this.fx.staticBurst = 1.4;
+    this.fx.tearBurst = 1;
+    this.player.shake = 2.5;
+    this.audio.duck(2.2);
+    setTimeout(() => this.hud.center(`${name.toUpperCase()} WAS TOUCHED`, `block #${atBlock.toLocaleString('en-US')} — proven onchain`), 1200);
+    setTimeout(() => this.hud.center(`${name.toUpperCase()} IS HOLLOW NOW`, 'and still wearing this body'), 4200);
+    setTimeout(() => this.hud.center(''), 7500);
+  }
+
   /**
    * The director: watch through the bodycam of whoever is closest to a Hollow (or of the Hollow
    * closing in), cut when someone else gets closer, and never hold a shot too long.

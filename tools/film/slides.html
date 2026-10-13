@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>HOLLOW demo slides</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=VT323&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root { --paper: #efe6c4; --dim: #9a937c; --rec: #ff2b1c; --ok: #9fe09a; --mon: #a58cff; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: transparent; color: var(--paper); font-family: Inter, sans-serif; }
+  .slide { position: absolute; inset: 0; display: none; padding: 64px 80px; }
+  .slide.on { display: block; }
+  .opaque { background: radial-gradient(ellipse at 50% 40%, #15130f 0%, #070605 70%); }
+  .opaque::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 3px); }
+  h1 { font-family: 'Special Elite', serif; font-weight: 400; letter-spacing: 0.06em; }
+  .kicker { font-family: VT323, monospace; font-size: 28px; letter-spacing: 0.18em; color: var(--dim); }
+  .logo { font-size: 150px; text-align: center; position: relative; text-shadow: 0 0 30px rgba(255,240,180,0.25); }
+  .logo span { position: absolute; left: 0; right: 0; top: 0; }
+  .logo .r { color: var(--rec); transform: translate(3px, 0); clip-path: inset(0 0 62% 0); opacity: 0.9; }
+  .logo .b { color: #6cf; transform: translate(-3px, 0); clip-path: inset(58% 0 0 0); opacity: 0.9; }
+  .tag { font-family: 'Special Elite', serif; font-size: 34px; text-align: center; color: var(--paper); opacity: 0.85; }
+  .sub { font-family: VT323, monospace; font-size: 30px; text-align: center; letter-spacing: 0.12em; color: var(--dim); margin-top: 10px; }
+  .rows { margin-top: 18px; display: grid; gap: 4px; }
+  .row { display: grid; grid-template-columns: 250px 1fr; gap: 20px; align-items: baseline; padding: 10px 0; border-top: 1px solid rgba(239,230,196,0.12); }
+  .row b { font-family: VT323, monospace; font-size: 32px; color: var(--mon); font-weight: 400; letter-spacing: 0.04em; }
+  .row p { font-size: 19px; line-height: 1.32; color: #ddd5b8; }
+  .term { font-family: VT323, monospace; font-size: 23px; line-height: 1.25; background: #000; border: 1px solid #2a2720; padding: 16px 20px; color: #cfc8ad; white-space: pre; }
+  .term .ok { color: var(--ok); }
+  .term .p { color: var(--dim); }
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; }
+  td { padding: 11px 10px; border-top: 1px solid rgba(239,230,196,0.12); font-size: 20px; vertical-align: top; color: #ddd5b8; }
+  td:first-child { color: var(--rec); font-family: VT323, monospace; font-size: 26px; width: 34%; }
+  td:nth-child(2) { width: 36%; }
+  td:last-child { color: var(--ok); }
+  .foot { position: absolute; left: 80px; right: 80px; bottom: 46px; font-family: VT323, monospace; font-size: 30px; letter-spacing: 0.08em; color: var(--paper); }
+  .lower { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 70px 34px; background: linear-gradient(transparent, rgba(0,0,0,0.85) 30%); }
+  .lower .t { font-family: VT323, monospace; font-size: 34px; letter-spacing: 0.1em; color: var(--paper); }
+  .lower .d { font-family: VT323, monospace; font-size: 27px; color: #cfc8ad; margin-top: 6px; letter-spacing: 0.05em; }
+  .lower .d em { color: var(--rec); font-style: normal; }
+  .center { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; }
+  .links { margin-top: 34px; text-align: center; font-family: VT323, monospace; font-size: 32px; line-height: 1.55; color: #ddd5b8; }
+  .links .k { color: var(--dim); }
+</style>
+</head>
+<body>
+
+<!-- over the first seconds of the town tour -->
+<section class="slide" id="title">
+  <div class="center" style="background: radial-gradient(ellipse at center, rgba(0,0,0,0.55), transparent 70%)">
+    <h1 class="logo">HOLLOW<span class="r">HOLLOW</span><span class="b">HOLLOW</span></h1>
+    <div class="tag">something is wearing you</div>
+    <div class="sub">AN ONCHAIN BODY-SWAP HORROR GAME · MONAD</div>
+  </div>
+</section>
+
+<!-- lower third at the start of the recovered footage -->
+<section class="slide" id="footage">
+  <div class="lower">
+    <div class="t">RECOVERED FOOTAGE · NIGHT 3 · MONAD TESTNET</div>
+    <div class="d">every frame rebuilt from onchain data: positions every 2 blocks · swaps from block hashes · touches proven by the contract</div>
+  </div>
+</section>
+
+<section class="slide opaque" id="monad">
+  <div class="kicker">WHY THIS ONLY WORKS ON MONAD</div>
+  <div style="display:grid; grid-template-columns: 1.25fr 1fr; gap: 44px; margin-top: 18px">
+    <div class="rows">
+      <div class="row"><b>300 MS BLOCKS</b><p>Every body's position is onchain every 2 blocks. Swaps land on the same block for every player.</p></div>
+      <div class="row"><b>GAS LIMIT BILLING</b><p>Monad charges the limit, not what's used: each move is sized to its measured cost — about <span style="color:#efe6c4;font-weight:600">65k gas</span> for 4 steps.</p></div>
+      <div class="row"><b>128-SLOT PAGES</b><p>A move touches exactly two storage pages. The town is baked into the bytecode.</p></div>
+      <div class="row"><b>RESERVE BALANCE</b><p>Value calls wait out Monad's 3-block quiet window. Calls are simulated before they're sent.</p></div>
+    </div>
+    <div>
+      <div class="term"><span class="p">$ node verify-shifts.mjs --night 3</span>
+night 3: 4 souls, 4 epochs on chain
+epoch 1 @ block 70634945
+  chain [1,2,3,0] predicted [1,2,3,0] <span class="ok">MATCH</span>
+epoch 2 @ block 70635052
+  chain [3,0,2,1] predicted [3,0,2,1] <span class="ok">MATCH</span>
+epoch 3 @ block 70635250
+  chain [1,2,3,0] predicted [1,2,3,0] <span class="ok">MATCH</span>
+<span class="ok">all shifts verified from block hashes</span></div>
+      <div style="margin-top:14px; font-size:19px; color:#9a937c; line-height:1.4">Anyone can recompute every body swap from public block hashes.</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide opaque" id="security">
+  <div class="kicker">WE ATTACKED IT OURSELVES</div>
+  <table>
+    <tr><td>POT LOCKED FOREVER</td><td>rollOver could park a pot in a night that never starts</td><td>removed — the pot can only go to that night's winners</td></tr>
+    <tr><td>WALKING UNSEEN</td><td>stop recording, move anywhere, reappear</td><td>a gap means "stood still": resuming is capped</td></tr>
+    <tr><td>THROUGH WALLS</td><td>long hops were only checked at their midpoint</td><td>every hop probed every 1.4 m</td></tr>
+    <tr><td>UNTOUCHABLE</td><td>proofs gave up after 256 idle samples</td><td>gaps of any length are provable</td></tr>
+    <tr><td>CHOOSING YOUR ROLE</td><td>the host could simulate start() for a role</td><td>roles come from a future block hash</td></tr>
+  </table>
+  <div class="foot">NO OWNER · NO ADMIN KEYS · NO UPGRADES · EXACT PAYMENTS · <span style="color:#9fe09a">24 TESTS PASSING</span></div>
+</section>
+
+<!-- lower third over the second clip -->
+<section class="slide" id="watchers">
+  <div class="lower">
+    <div class="t">WATCHERS PAY TO TORMENT THE LIVING</div>
+    <div class="d">kill the lights 0.01 · whisper 0.01 · scream 0.01 · force a swap 0.05 MON → the night's pot</div>
+    <div class="d">escapees split the pot · <em>if nobody escapes, the Hollow keeps it</em></div>
+  </div>
+</section>
+
+<section class="slide opaque" id="end">
+  <div class="center">
+    <h1 class="logo" style="font-size:120px">HOLLOW<span class="r">HOLLOW</span><span class="b">HOLLOW</span></h1>
+    <div class="links">
+      <div><span class="k">play</span> let-the-dreamers-rise.github.io/mon</div>
+      <div><span class="k">code</span> github.com/let-the-dreamers-rise/mon</div>
+      <div><span class="k">contract</span> 0x5C4ef8456A07c61687d72827709Ff65569BB2957 · Monad testnet</div>
+      <div class="k" style="margin-top:14px">MONAD METROPOLIS · TRACK 03 · SOCIAL, ATTENTION &amp; CULTURE</div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const id = location.hash.slice(1) || 'title';
+  document.getElementById(id)?.classList.add('on');
+</script>
+</body>
+</html>
