@@ -3,6 +3,7 @@ import { FEATURED_NIGHT, IS_LOCAL, MON_PER_MINUTE, NET, NIGHT_BLOCKS, TORMENTS, 
 import { hollowAbi } from './chain/abi';
 import { NightState, encodeName, short } from './chain/night';
 import { ReplayNight } from './chain/replay';
+import { describe, loadArchive } from './chain/archive';
 import { Burner, connectInjected, explainError, fundFromInjected, injectedAddress, publicClient } from './chain/wallet';
 import { Game } from './game/game';
 import { Psych } from './game/psych';
@@ -129,12 +130,60 @@ $('btn-footage').onclick = async () => {
 let lobbyTimer = 0;
 async function openLobby() {
   show('lobby');
+  void renderArchive();
   $('lobby-title').textContent = mode === 'play' ? 'CHOOSE A NIGHT' : 'CHOOSE A NIGHT TO WATCH';
   $('btn-create').classList.toggle('hidden', mode === 'watch');
   await renderNights();
   clearInterval(lobbyTimer);
   lobbyTimer = window.setInterval(renderNights, 1500);
 }
+
+/** the competitive feed: finished nights and the souls that did best, read from the contract */
+async function renderArchive() {
+  try {
+    const { nights, board } = await loadArchive();
+    const list = $('archive-nights');
+    list.innerHTML = nights.length ? '' : 'No night has ended yet.';
+    list.classList.toggle('hint', !nights.length);
+    for (const n of nights.slice(0, 8)) {
+      const row = document.createElement('div');
+      row.className = 'arch';
+      const text = document.createElement('span');
+      const b = document.createElement('b');
+      b.textContent = `NIGHT ${n.id}`;
+      text.append(b, document.createTextNode(describe(n)));
+      const watch = document.createElement('button');
+      watch.className = 'mini';
+      watch.textContent = 'watch';
+      watch.onclick = () => void enterReplay(n.id);
+      row.append(text, watch);
+      list.appendChild(row);
+    }
+    const t = $('haunted') as HTMLTableElement;
+    t.innerHTML = '<tr><th>SOUL</th><th>NIGHTS</th><th>GOT OUT</th><th>HOLLOW</th><th>WINS</th><th>MON WON</th></tr>';
+    for (const r of board.slice(0, 8)) {
+      const tr = document.createElement('tr');
+      if (r.addr.toLowerCase() === wallet.address.toLowerCase()) tr.className = 'me';
+      for (const v of [r.name, r.nights, r.escapes, r.hollow, r.wins, Number(formatEther(r.won)).toFixed(3)]) {
+        const td = document.createElement('td');
+        td.textContent = String(v);
+        tr.appendChild(td);
+      }
+      t.appendChild(tr);
+    }
+  } catch {
+    $('archive-nights').textContent = 'The archive is unreachable right now.';
+  }
+}
+
+$('btn-explore').onclick = async () => {
+  await game.audio.start();
+  show('none');
+  game.roam();
+  $('view').onclick = () => game.player.lock();
+  game.player.lock();
+  toast('Halden, alone. WASD to walk · mouse to look · F torch · M map · Esc to stop', 6000);
+};
 
 async function renderNights() {
   if (entered) return;
@@ -196,8 +245,10 @@ async function renderDetail(id: bigint) {
   $('nd-hint').textContent =
     mode === 'watch'
       ? phase === 'night'
-        ? 'Watch any bodycam. Pay MON to torment them — every fee goes to the survivors.'
-        : 'Wait for the night to begin.'
+        ? "Watch any bodycam. Pay MON to torment them — every fee goes to the night's pot."
+        : phase === 'over'
+          ? 'This night is over. Every step of it is still on chain: watch the footage rebuilt from Monad blocks.'
+          : 'Wait for the night to begin.'
       : phase === 'lobby'
         ? me >= 0
           ? isHost

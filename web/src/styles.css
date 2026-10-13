@@ -148,3 +148,14 @@ h2 { font-family: 'Special Elite', serif; font-size: 42px; letter-spacing: 6px; 
 .map-cap { text-align: center; color: var(--dim); font-size: 18px; margin-top: 8px; }
 
 #controls.faded { opacity: 0; }
+
+/* the archive: the competitive feed of finished nights */
+#archive { margin-top: 16px; }
+.arch { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink); text-align: left; }
+.arch b { font-family: VT323, monospace; font-size: 18px; color: var(--sick); font-weight: 400; margin-right: 8px; }
+.arch button { flex: none; }
+#haunted { width: 100%; border-collapse: collapse; font-size: 13px; }
+#haunted td, #haunted th { padding: 4px 6px; text-align: right; border-top: 1px solid var(--line); }
+#haunted th { font-family: VT323, monospace; font-weight: 400; color: var(--dim); font-size: 15px; letter-spacing: 1px; }
+#haunted td:first-child, #haunted th:first-child { text-align: left; }
+#haunted tr.me td { color: var(--sick); }
