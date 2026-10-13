@@ -12,7 +12,7 @@ Spectators ("watchers") can open any running night, switch between everyone's bo
 
 > Metropolis Hackathon · Track 03 — Social, Attention & Culture
 
-- **Play:** _GitHub Pages link — see [Deployment](#deployment)_
+- **Play:** **[hollow-monad.vercel.app](https://hollow-monad.vercel.app)** (no wallet needed for **RECOVERED FOOTAGE** or the free walk; a night needs testnet MON from the [faucet](https://faucet.monad.xyz))
 - **Demo video:** _link added at submission_
 - **Contract (Monad testnet, chain 10143):** [`0x5C4ef8456A07c61687d72827709Ff65569BB2957`](https://testnet.monadvision.com/address/0x5C4ef8456A07c61687d72827709Ff65569BB2957)
 
@@ -138,7 +138,9 @@ Replays: `http://localhost:5173/?replay=3` rebuilds night 3 from Monad testnet (
 
 ### Deployment
 
-`.github/workflows/pages.yml` builds `web/` and publishes it to GitHub Pages on every push to the main branch. Enable it under **Settings → Pages → Source: GitHub Actions**.
+The live build is on Vercel at [hollow-monad.vercel.app](https://hollow-monad.vercel.app): `web/` built with `npm ci && npm run build`, output `web/dist`, no environment variables. The client is fully static: it reads and writes Monad testnet directly from the browser.
+
+`.github/workflows/pages.yml` can publish the same build to GitHub Pages as a mirror; enable it under **Settings → Pages → Source: GitHub Actions**.
 
 ## Security
 

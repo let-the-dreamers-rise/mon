@@ -4,25 +4,27 @@ Deadline: **Oct 13, 2026, 11:59 PM ET** (Oct 14, 03:59 UTC · 9:29 AM IST).
 
 | Requirement | Status |
 | --- | --- |
-| Public GitHub repository | ⚠️ make `let-the-dreamers-rise/mon` public (Settings → General → Danger zone → Change visibility) |
+| Public GitHub repository | ✅ `let-the-dreamers-rise/mon` |
 | MIT license | ✅ `LICENSE` |
 | README with setup instructions | ✅ `README.md` (setup, Monad testnet, bots, replays, security) |
 | AI-use disclosure | ✅ README → *AI disclosure* |
 | Demo video ≤ 3 min | ✅ `hollow-demo.mp4` (2:51), rendered from the game itself (see `tools/film`). Upload it (YouTube unlisted or similar) and paste the link |
 | Deployed on Monad testnet, contract address | ✅ `0x5C4ef8456A07c61687d72827709Ff65569BB2957` (chain 10143) |
-| Playable link | ⚠️ enable GitHub Pages (below) → `https://let-the-dreamers-rise.github.io/mon/` |
+| Playable link | ✅ https://hollow-monad.vercel.app |
 
-## Turning on the playable link
+## Playable link
 
-1. Make the repository public. GitHub Pages on a private repository needs a paid plan.
-2. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-3. The workflow `.github/workflows/pages.yml` builds `web/` on every push to `main` or
-   `claude/nice-davinci-v7bkuf`. The first deploy from the feature branch may be refused by the
-   `github-pages` environment's branch rule. Either merge the branch into `main`, or add the branch
-   under **Settings → Environments → github-pages → Deployment branches**. Then re-run the latest
-   *Deploy web client to GitHub Pages* run from the Actions tab.
-4. Open `https://let-the-dreamers-rise.github.io/mon/`. The title screen's **RECOVERED FOOTAGE**
-   replays testnet night 3 without a wallet.
+**https://hollow-monad.vercel.app** (Vercel, static build of `web/`). The title screen's
+**RECOVERED FOOTAGE** replays testnet night 3 without a wallet, and *or just walk around Halden
+first* opens the town with no wallet at all. Playing a night needs testnet MON in the session wallet
+([faucet](https://faucet.monad.xyz)).
+
+The Vercel project builds the repository at a pinned commit, so a push does not redeploy it on its
+own. To have every push deploy, install the Vercel GitHub app on this repository and connect the
+project to it (root directory `web`).
+
+`.github/workflows/pages.yml` can also publish a mirror to GitHub Pages
+(**Settings → Pages → Source: GitHub Actions**).
 
 ## Form text (paste and edit)
 
