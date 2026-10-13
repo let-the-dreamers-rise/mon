@@ -8,7 +8,8 @@ Deadline: **Oct 13, 2026, 11:59 PM ET** (Oct 14, 03:59 UTC · 9:29 AM IST).
 | MIT license | ✅ `LICENSE` |
 | README with setup instructions | ✅ `README.md` (setup, Monad testnet, bots, replays, security) |
 | AI-use disclosure | ✅ README → *AI disclosure* |
-| Demo video ≤ 3 min | ✅ `hollow-demo.mp4` (2:51), rendered from the game itself (see `tools/film`). Upload it (YouTube unlisted or similar) and paste the link |
+| Demo video ≤ 3 min | ✅ `hollow-demo-v2.mp4` (2:57), rendered from the game itself (see `tools/film`: v1 re-cut with `splice.py`, plus the `tour-it.js` segment). Upload it (YouTube unlisted or similar) and paste the link |
+| Pitch video ≤ 2 min | ✅ `hollow-pitch.mp4` (1:52): `pitch.html` slides, `narration.py --script pitch`, `pitch-cut.json` |
 | Deployed on Monad testnet, contract address | ✅ `0x5C4ef8456A07c61687d72827709Ff65569BB2957` (chain 10143) |
 | Playable link | ✅ https://hollow-monad.vercel.app |
 
