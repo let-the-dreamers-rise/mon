@@ -747,11 +747,12 @@ export class Pilot {
     // only samples whose block the chain has reached can be accepted
     const ready = this.pending.filter((p) => n.blockOfIndex(p.index) <= cur);
     if (!ready.length) return;
-    // fewer, fuller transactions: wait for 4 samples or until the oldest has to go (the contract
-    // accepts 16 blocks; keep room for this client's own latency), unless a voice line needs it now
+    // fewer, fuller transactions: wait for 6 samples or until the oldest has to go (the contract
+    // accepts 16 blocks; keep this client's measured latency plus 4 blocks spare), unless a voice
+    // line needs it now
     const oldest = n.blockOfIndex(ready[0].index);
-    const sendAge = Math.max(0, LATE_BLOCKS - 6 - lat);
-    if (!force && !urgent && ready.length < 4 && cur - oldest < sendAge) return;
+    const sendAge = Math.max(0, LATE_BLOCKS - 4 - lat);
+    if (!force && !urgent && ready.length < 6 && cur - oldest < sendAge) return;
     if (!force && !urgent && now - this.lastSend < 300) return;
     const nS = n.bodies[body]?.nSamples ?? 0;
     const batch = ready.filter((p) => p.body === body && p.index >= nS).slice(0, 8);

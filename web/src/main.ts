@@ -1,5 +1,5 @@
 import { formatEther, parseEther } from 'viem';
-import { IS_LOCAL, NET, NIGHT_BLOCKS, TORMENTS, type Hex } from './config';
+import { FEATURED_NIGHT, IS_LOCAL, MON_PER_MINUTE, NET, NIGHT_BLOCKS, TORMENTS, type Hex } from './config';
 import { hollowAbi } from './chain/abi';
 import { NightState, encodeName, short } from './chain/night';
 import { ReplayNight } from './chain/replay';
@@ -43,7 +43,10 @@ const savedName = (() => {
 
 async function refreshBalance() {
   try {
-    $('bal').textContent = await wallet.balanceText();
+    const bal = await wallet.balanceText();
+    $('bal').textContent = bal;
+    const minutes = Number(bal) / MON_PER_MINUTE;
+    $('playtime').textContent = minutes >= 1 ? `≈ ${Math.floor(minutes)} min of walking` : Number(bal) > 0 ? 'under a minute of walking' : '';
   } catch {
     $('bal').textContent = '?';
   }
@@ -57,7 +60,7 @@ $('copy').onclick = async () => {
 };
 $('fund').onclick = async () => {
   try {
-    await fundFromInjected(wallet.address, parseEther('0.5'));
+    await fundFromInjected(wallet.address, parseEther('1'));
     toast('top-up sent — it lands in about a second on Monad');
     setTimeout(refreshBalance, 2500);
   } catch (e) {
@@ -102,6 +105,25 @@ $('btn-watch').onclick = async () => {
   await openLobby();
 };
 $('btn-back').onclick = () => show('title');
+$('btn-footage').onclick = async () => {
+  await game.audio.start();
+  void game.audio.play('ui_click.mp3', 0.5);
+  let id = FEATURED_NIGHT;
+  if (!id) {
+    // the most recent night that is over
+    const count = (await publicClient.readContract({ address: NET.hollow, abi: hollowAbi, functionName: 'nightCount' })) as bigint;
+    const block = await publicClient.getBlockNumber();
+    for (let i = count; i > 0n; i--) {
+      const n = (await publicClient.readContract({ address: NET.hollow, abi: hollowAbi, functionName: 'nights', args: [i] })) as { startBlock: bigint; endBlock: bigint };
+      if (n.startBlock && (n.endBlock || block >= n.startBlock + BigInt(NIGHT_BLOCKS))) {
+        id = i;
+        break;
+      }
+    }
+  }
+  if (id) void enterReplay(id);
+  else toast('no finished night to recover yet');
+};
 
 // ------------------------------------------------------------------ lobby
 let lobbyTimer = 0;

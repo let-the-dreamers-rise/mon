@@ -61,6 +61,11 @@ export const GAS = {
   use: 110_000n,
 } as const;
 
+/** a finished testnet night worth watching: the title screen's RECOVERED FOOTAGE */
+export const FEATURED_NIGHT = IS_LOCAL ? 0n : 3n;
+/** what a minute of walking costs on testnet (measured: ~0.0075 MON per ~3 s move transaction) */
+export const MON_PER_MINUTE = 0.15;
+
 export const MAX_FEE = 130_000_000_000n; // 130 gwei (Monad testnet base fee floor is 100)
 export const PRIORITY_FEE = 1_000_000_000n; // 1 gwei
 export const TORMENT_FEE = 10_000_000_000_000_000n; // 0.01 MON
