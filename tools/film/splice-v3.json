@@ -1,0 +1,9 @@
+{
+  "steps": [
+    ["keep", "hollow-demo-v2.mp4", 0.0, 97.125],
+    ["insert", "v3-mid.mp4"],
+    ["keep", "hollow-demo-v2.mp4", 151.575, 172.225],
+    ["insert", "v3-end.mp4"]
+  ],
+  "fadeout": 1.0
+}

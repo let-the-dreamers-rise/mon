@@ -1,0 +1,9 @@
+{
+  "segments": [
+    ["slide", "titlescreen", 0, 6.0]
+  ],
+  "overlays": [["url", 0, 1.2, 6.0]],
+  "voice": [
+    ["end_0.wav", 0, 1.0]
+  ]
+}

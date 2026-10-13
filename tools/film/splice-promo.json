@@ -1,0 +1,7 @@
+{
+  "steps": [
+    ["insert", "it.mp4"],
+    ["insert", "v3-end.mp4"]
+  ],
+  "fadeout": 0.8
+}
