@@ -111,9 +111,9 @@ await page.evaluate(() => window.__film.start());
 // a replay starts from its first block on the first film frame, not when it finished loading
 await page.evaluate(() => window.__replay?.play(performance.now()));
 const t0 = await page.evaluate(() => window.__film.t);
-// optionally fast-forward (cheap: logic only, a frame every 100ms)
+// optionally fast-forward (a rendered frame every 500 ms of footage)
 const skip = Number(args.skip ?? 0);
-for (let s = 0; s < skip * 10; s++) await page.evaluate(() => window.__film.step(100));
+for (let s = 0; s < skip * 2; s++) await page.evaluate(() => window.__film.step(500));
 await page.evaluate(() => (window.__audioLog.length = 0));
 const tStart = await page.evaluate(() => window.__film.t);
 
