@@ -54,6 +54,7 @@ export class Burner {
   readonly account: PrivateKeyAccount;
   private nonce: number | null = null;
   private sending: Promise<unknown> = Promise.resolve();
+  private lastSentAt = 0;
   readonly sent: SentTx[] = [];
   onSent?: (tx: SentTx) => void;
   onError?: (fn: string, err: unknown) => void;
@@ -91,6 +92,12 @@ export class Burner {
     const run = async (): Promise<Hex | null> => {
       const data = encodeFunctionData({ abi: hollowAbi, functionName: fn as never, args: args as never });
       const gas = opts.gas ?? GAS[fn as FnName] ?? 200_000n;
+      // Monad reserve balance: an account under 10 MON may only send value if it sent nothing in
+      // the previous 3 blocks, so open a quiet window first (movement txs queue up behind this).
+      if ((opts.value ?? 0n) > 0n) {
+        const wait = 2300 - (performance.now() - this.lastSentAt);
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      }
       try {
         const nonce = await this.nextNonce();
         const raw = await this.account.signTransaction({
@@ -105,6 +112,7 @@ export class Burner {
           maxPriorityFeePerGas: PRIORITY_FEE,
         });
         const hash = (await publicClient.request({ method: 'eth_sendRawTransaction', params: [raw] })) as Hex;
+        this.lastSentAt = performance.now();
         const tx = { hash, fn: String(fn), at: performance.now() };
         this.sent.push(tx);
         if (this.sent.length > 400) this.sent.splice(0, 100);
@@ -112,7 +120,8 @@ export class Burner {
         return hash;
       } catch (err) {
         const msg = String((err as Error)?.message ?? err);
-        if (/nonce/i.test(msg)) this.resyncNonce();
+        this.resyncNonce(); // the failed tx may have consumed our local nonce
+        void msg;
         this.onError?.(String(fn), err);
         return null;
       }

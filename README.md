@@ -10,7 +10,7 @@ Spectators ("watchers") can open any running night, switch between everyone's bo
 
 - **Play:** _GitHub Pages link — see [Deployment](#deployment)_
 - **Demo video:** _link added at submission_
-- **Contract (Monad testnet, chain 10143):** _address added after deployment — see [`web/src/deployments.json`](web/src/deployments.json)_
+- **Contract (Monad testnet, chain 10143):** [`0xA30C47499589116b14A0F14f3Fcf2884aeA9D33c`](https://testnet.monadvision.com/address/0xA30C47499589116b14A0F14f3Fcf2884aeA9D33c)
 
 ---
 
@@ -59,6 +59,10 @@ docs/GDD.md         game design document
 ```
 
 **Data flow.** Each client polls one `snapshot()` view per block (night header, current epoch, every body's latest samples), reads `getSouls`/`getEpochs`/`getPockets`, and fetches `Torment`/`Used` logs. Your own body's samples are signed locally by a burner session wallet and sent with `eth_sendRawTransaction` (no popups, local nonce, fixed gas limits, since Monad charges the gas limit). Swaps are computed locally from block hashes with the same algorithm as the contract, so they land on the exact block. Proofs are found client-side and submitted by whoever sees them first.
+
+**Monad's reserve-balance rule.** An account holding less than 10 MON may only send *value* if it sent no other transaction in the previous 3 blocks. Players stream movement transactions every ~2 s, so the session wallet opens a short quiet window before any value-carrying call (shop purchases, watcher torments), and the bots space their funding transfers. Fresh funds are also given a few seconds to settle, because Monad validates balances against slightly lagged state.
+
+**Audit any night.** `node web/scripts/verify-shifts.mjs --rpc https://testnet-rpc.monad.xyz --hollow <address> --night <id>` recomputes every body swap from public block hashes and checks it against the contract.
 
 **Contract rules worth knowing.**
 - Samples: `x | y << 16` in cm, one per body every 2 blocks, append-only. Speed cap 4.2 m per sample, the midpoint of every hop must not be inside a wall, and samples must be submitted within 40 blocks. A gap means the body stood still.

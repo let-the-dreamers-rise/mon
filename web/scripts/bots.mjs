@@ -53,18 +53,25 @@ const nonces = new Map();
 const FEES = { maxFeePerGas: 130_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
 const GAS = { record: 120_000n, sync: 140_000n, turn: 160_000n, collectFuse: 160_000n, escape: 160_000n, join: 140_000n, createNight: 120_000n, start: 260_000n, setName: 60_000n, buy: 170_000n, use: 110_000n };
 let sentCount = 0;
+const lastSent = new Map();
 async function send(account, fn, fnArgs, extra = {}) {
   const data = encodeFunctionData({ abi, functionName: fn, args: fnArgs });
+  // Monad reserve balance: value-carrying txs need 3 quiet blocks from this sender first
+  if ((extra.value ?? 0n) > 0n) {
+    const wait = 2300 - (Date.now() - (lastSent.get(account.address) ?? 0));
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  }
   let n = nonces.get(account.address);
   if (n === undefined) n = await client.getTransactionCount({ address: account.address, blockTag: 'pending' });
   nonces.set(account.address, n + 1);
   const raw = await account.signTransaction({ chainId, type: 'eip1559', to: HOLLOW, data, gas: extra.gas ?? GAS[fn] ?? 200_000n, nonce: n, value: extra.value ?? 0n, ...FEES });
   try {
     const hash = await client.request({ method: 'eth_sendRawTransaction', params: [raw] });
+    lastSent.set(account.address, Date.now());
     sentCount++;
     return hash;
   } catch (e) {
-    if (/nonce/i.test(String(e.message))) nonces.delete(account.address);
+    nonces.delete(account.address); // any failure: our local nonce may now be ahead of the chain
     if (!/already known/i.test(String(e.message))) console.error(`[${fn}]`, String(e.shortMessage ?? e.message).slice(0, 140));
     return null;
   }
@@ -87,10 +94,13 @@ if (args.fund && process.env.FUNDER_KEY) {
     const bal = await client.getBalance({ address: a.address });
     if (bal >= target) continue;
     const raw = await funder.signTransaction({ chainId, type: 'eip1559', to: a.address, value: target - bal, gas: 21_000n, nonce: fn++, ...FEES });
-    await client.request({ method: 'eth_sendRawTransaction', params: [raw] });
-    console.log(`funded ${a.address} with ${formatEther(target - bal)} MON`);
+    const hash = await client.request({ method: 'eth_sendRawTransaction', params: [raw] });
+    const rc = await client.waitForTransactionReceipt({ hash, pollingInterval: 300, timeout: 30_000 });
+    console.log(`funded ${a.address} with ${formatEther(target - bal)} MON (${rc.status})`);
+    await new Promise((r) => setTimeout(r, 2500)); // reserve-balance rule: one value send per 3 blocks
   }
-  await new Promise((r) => setTimeout(r, 2500));
+  // Monad checks balances against slightly lagged state: let fresh funds settle
+  await new Promise((r) => setTimeout(r, 5000));
 }
 
 // ---------------------------------------------------------------- map helpers
