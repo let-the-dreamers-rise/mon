@@ -109,6 +109,47 @@ function boxUV(w: number, h: number, d: number, rep: number) {
   return g;
 }
 
+/**
+ * Rain on the ground: world-space puddles that go dark and glossy, so street lamps and torches
+ * leave long glints in them. `amount` is how much of the surface is under water.
+ */
+function wetten(mat: THREE.MeshStandardMaterial, amount: number) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uWet = { value: amount };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vWetPos;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vWetPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xz;
+        #else
+          vWetPos = (modelMatrix * vec4(transformed, 1.0)).xz;
+        #endif`,
+      );
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec2 vWetPos;
+        uniform float uWet;
+        float wetHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float wetNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(wetHash(i), wetHash(i + vec2(1, 0)), u.x), mix(wetHash(i + vec2(0, 1)), wetHash(i + vec2(1, 1)), u.x), u.y);
+        }
+        float wetMask() {
+          float n = wetNoise(vWetPos * 0.35) * 0.65 + wetNoise(vWetPos * 1.3) * 0.35;
+          return smoothstep(1.0 - uWet, 1.0 - uWet + 0.12, n);
+        }`,
+      )
+      .replace('#include <map_fragment>', '#include <map_fragment>\n float wet = wetMask();\n diffuseColor.rgb *= mix(1.0, 0.45, wet);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(roughnessFactor * 0.8, 0.03, wet);');
+  };
+  mat.customProgramCacheKey = () => `wet${amount}`;
+}
+
 function std(color: number, rough = 0.9, metal = 0) {
   return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 }
@@ -173,8 +214,10 @@ export class World {
     const asphalt = std(0x262628, 0.42, 0.05);
     asphalt.map = roughness(1);
     void applyPbr(asphalt, 'asphalt', { tint: 0x6a6a6e, roughnessScale: 0.55 });
+    wetten(asphalt, 0.55);
     const walk = std(0x4a4842, 0.8);
     void applyPbr(walk, 'sidewalk', { tint: 0x9a968c, roughnessScale: 0.75 });
+    wetten(walk, 0.3);
     const park = std(0x1f2416, 1);
     void applyPbr(park, 'ground', { tint: 0x8a8a7a });
     const archive = new THREE.MeshStandardMaterial({ map: carpet(), roughness: 1 });
