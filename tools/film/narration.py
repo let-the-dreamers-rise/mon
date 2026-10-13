@@ -49,6 +49,9 @@ SECTIONS = {
         "We attacked it ourselves. We found a way to lock the prize pot forever, a way to walk unseen, and a way to become untouchable.",
         "All fixed, and every fix has a test.",
     ],
+    "archive": [
+        "Every night joins the Archive: who was Hollow, who got out, who took the pot. A competitive feed, read straight from the contract.",
+    ],
     "watchers": [
         "Spectators can watch any bodycam, and pay MON to torment the players. Kill the lights. Whisper. Force an early swap.",
         "Every fee goes into the night's pot. The survivors split it.",
@@ -68,6 +71,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--voice", default="bm_george")
     ap.add_argument("--speed", type=float, default=0.92)
+    ap.add_argument("--only", default="", help="comma-separated sections to (re)generate")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     from kokoro_onnx import Kokoro
@@ -75,7 +79,15 @@ def main():
     kokoro = Kokoro(os.path.join(args.models, "kokoro-v1.0.onnx"), os.path.join(args.models, "voices-v1.0.bin"))
     info = {}
     lines_info = {}
+    only = [x for x in args.only.split(",") if x]
+    prev_path = os.path.join(args.out, "narration.json")
+    if only and os.path.exists(prev_path):
+        with open(prev_path) as f:
+            prev = json.load(f)
+        info, lines_info = prev["sections"], prev["lines"]
     for name, lines in SECTIONS.items():
+        if only and name not in only:
+            continue
         parts, t = [], 0.0
         lines_info[name] = []
         for k, line in enumerate(lines):
