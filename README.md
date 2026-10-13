@@ -35,6 +35,7 @@ The bodycam HUD shows the block number as its timestamp, blinks `● REC` on eve
 - **Shops.** The 24/7 Mart, the pharmacy and Koda Photo sell batteries, flares, a music-box lure, pills, adrenaline and a Polaroid that shows who is really inside a body. Purchases are transactions, and items go into the **body's** pockets, so after a swap someone else gets your things.
 - **Your own mind.** Sanity drains in the dark. Then you see figures that aren't there, hear footsteps that stop when you stop, sit through swaps that never happened, and hear the browser's own voice say other players' names.
 - **Permanence.** The intro reads your real public Monad history. The end screen lists every transaction hash of your night: *your fear is now permanent.*
+- **Recovered footage.** Every finished night can be watched again, rebuilt from nothing but chain data: the header, the epoch history, every body's samples and the night's events. It plays back through the bodycams, cutting to whoever is closest to a Hollow, and touches, fuses, swaps, flares and voices land on their blocks. Open a finished night in the lobby (**WATCH THE FOOTAGE**) or go straight to `?replay=<night>`.
 
 Full rules and numbers: [`docs/GDD.md`](docs/GDD.md).
 
@@ -52,11 +53,16 @@ contracts/          Foundry project
 tools/map/          Halden generator → walls bitmap, spawns, objectives, render description
 web/                Vite + TypeScript + three.js client
   src/chain/        burner session wallet & tx engine, NightState (mirrors the contract,
-                    predicts shifts from block hashes, finds proofs), Pilot (records your samples)
+                    predicts shifts from block hashes, finds proofs), Pilot (records your samples),
+                    ReplayNight (rebuilds a finished night from chain data)
   src/game/         world (town renderer), player (FPS controller), figures, fx (bodycam
                     post-processing), audio (HRTF voices, synthesized rain/thunder), psych
                     (sanity & hallucinations), town (shops, items, map), game (the loop)
   scripts/bots.mjs  bots that play by the contract rules (demos, playtests, filling seats)
+  scripts/verify-shifts.mjs   recompute every swap of a night from block hashes
+  scripts/gas-report.mjs      per-function gas of a block range
+tools/audio/        offline voice + SFX generator (Kokoro-82M TTS, numpy DSP)
+tools/film/         deterministic capture of the demo video from the game itself
 docs/GDD.md         game design document
 ```
 
@@ -113,7 +119,9 @@ cd ../web && npm run build
 
 Players need a little testnet MON in their session wallet (shown on the title screen; [faucet](https://faucet.monad.xyz)). A movement transaction carries ~4 samples (2.4 s of walking) and costs about 0.007 MON at the 100 gwei base fee, because Monad charges the full gas limit. Standing still is free. The **withdraw all** button sends whatever is left back to your wallet.
 
-Bots on testnet: `BOT_MNEMONIC="..." FUNDER_KEY=0x... node scripts/bots.mjs --rpc https://testnet-rpc.monad.xyz --hollow <address> --fund 0.6 --create --start-when 4 --count 3`.
+Bots on testnet: `BOT_MNEMONIC="..." FUNDER_KEY=0x... node scripts/bots.mjs --rpc https://testnet-rpc.monad.xyz --hollow <address> --fund 0.6 --create --start-when 4 --count 3` (`--speed 1.4` makes them run). Each bot spends about 0.6 MON in 2.5 minutes of constant movement. `ESTIMATE=1` makes them `eth_estimateGas` every call and print the gas distribution.
+
+Replays: `http://localhost:5173/?replay=3` rebuilds night 3 from Monad testnet (`&cam=1` pins a bodycam, `&speed=2` plays faster). The demo video's footage is night 3 of the contract above.
 
 ### Deployment
 
@@ -160,7 +168,14 @@ Everything in this repository was created during the Metropolis hackathon window
 
 ## AI disclosure
 
-This project was built with heavy use of AI coding tools, as the rules require us to disclose. **Claude Code (Anthropic)** wrote most of the code, contracts, tests, map generator, bots and docs under the direction of the team. AI subagents generated the voice/SFX pack (with the open-source Kokoro-82M TTS model and ffmpeg), sourced and optimized the CC0 Poly Haven assets, and scripted the character model in Blender. Game direction, concept decisions and playtesting were done by the team.
+This project was built with heavy use of AI tools, as the rules require us to disclose. **Claude Code (Anthropic)** wrote most of the code under the team's direction:
+- the contract, its tests and the security review;
+- the web client, the map generator and the bots;
+- the audio generator (Kokoro-82M TTS and numpy DSP);
+- the demo-video tooling, slides and narration script;
+- the docs.
+
+It also sourced and optimized the CC0 Poly Haven assets and scripted the character model in Blender. All voices in the game and in the demo video, including the narrator, are synthetic: Kokoro-82M, generated offline. Game direction, concept decisions and playtesting were done by the team.
 
 ## Credits
 
